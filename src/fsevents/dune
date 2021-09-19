@@ -1,0 +1,17 @@
+(rule
+ (deps
+  (:script gen_flags.ml))
+ (action
+  (with-stdout-to
+   library_flags.sexp
+   (run ocaml %{script} %{system}))))
+
+(library
+ (name fsevents)
+ (synopsis "minimal bindings for fsvents on macos")
+ (library_flags
+  (:include library_flags.sexp))
+ (foreign_stubs
+  (language c)
+  (names fsevents_stubs))
+ (libraries dyn stdune))
