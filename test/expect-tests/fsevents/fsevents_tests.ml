@@ -101,15 +101,20 @@ let make_callback ~f =
     | [] -> ()
     | _ -> f events
 
-let fsevents ~cwd ~paths =
+let fsevents ?on_event ~cwd ~paths () =
+  let on_event =
+    match on_event with
+    | None -> print_event ~cwd
+    | Some s -> s
+  in
   Fsevents.create ~paths
-    ~f:(make_callback ~f:(List.iter ~f:(print_event ~cwd)))
+    ~f:(make_callback ~f:(List.iter ~f:on_event))
     ~latency:0.
 
-let test_with_operations ?exclusion_paths f =
+let test_with_operations ?on_event ?exclusion_paths f =
   test (fun finish ->
       let cwd = Sys.getcwd () in
-      let t = fsevents ~paths:[ cwd ] ~cwd in
+      let t = fsevents ?on_event ~paths:[ cwd ] ~cwd () in
       (match exclusion_paths with
       | None -> ()
       | Some f ->
@@ -124,21 +129,20 @@ let test_with_operations ?exclusion_paths f =
             emit_end ())
           ()
       in
-      Fsevents.loop t;
-      Fsevents.destroy t;
+      (match Fsevents.loop t with
+      | exception Exit -> print_endline "[EXIT]"
+      | () -> Fsevents.destroy t);
       finish ())
 
 let%expect_test "file create event" =
   test_with_operations (fun () -> Io.String_path.write_file "./file" "foobar");
   [%expect
-    {|
-      > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/file" } |}]
+    {| > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/file" } |}]
 
 let%expect_test "dir create event" =
   test_with_operations (fun () -> ignore (Fpath.mkdir "./blahblah"));
   [%expect
-    {|
-      > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/blahblah" } |}]
+    {| > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/blahblah" } |}]
 
 let%expect_test "move file" =
   test_with_operations (fun () ->
@@ -146,8 +150,20 @@ let%expect_test "move file" =
       Unix.rename "old" "new");
   [%expect
     {|
-      > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/new" }
-      > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/old" } |}]
+    > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/new" }
+    > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/old" } |}]
+
+let%expect_test "raise inside callback" =
+  test_with_operations
+    ~on_event:(fun _ ->
+      print_endline "exiting.";
+      raise Exit)
+    (fun () ->
+      Io.String_path.write_file "old" "foobar";
+      Io.String_path.write_file "old" "foobar");
+  [%expect {|
+    exiting.
+    [EXIT] |}]
 
 let%expect_test "set exclusion paths" =
   let run paths =
@@ -161,11 +177,10 @@ let%expect_test "set exclusion paths" =
   (* absolute paths work *)
   run Filename.concat;
   [%expect
-    {|
-      > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/ignored" } |}];
+    {| > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/ignored" } |}];
   (* but relative paths do not *)
   run (fun _ name -> name);
   [%expect
     {|
-      > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/ignored/old" }
-      > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/ignored" } |}]
+    > { action = "Unknown"; kind = "File"; path = "$TESTCASE_ROOT/ignored/old" }
+    > { action = "Create"; kind = "Dir"; path = "$TESTCASE_ROOT/ignored" } |}]

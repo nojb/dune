@@ -13,6 +13,7 @@ typedef struct dune_fsevents_t {
   CFRunLoopRef runLoop;
   value v_callback;
   FSEventStreamRef stream;
+  value v_exn;
 } dune_fsevents_t;
 
 static FSEventStreamEventFlags interesting_flags =
@@ -28,7 +29,7 @@ static void dune_fsevents_callback(const FSEventStreamRef streamRef,
   caml_acquire_runtime_system();
   CAMLparam0();
   CAMLlocal5(v_events_xs, v_events_x, v_flags, v_id, v_event);
-  CAMLlocal1(v_path);
+  CAMLlocal2(v_path, v_res);
   v_events_xs = Val_emptylist;
 
   // we iterate over the events backwards to avoid reversing the list in the end
@@ -66,7 +67,14 @@ static void dune_fsevents_callback(const FSEventStreamRef streamRef,
     v_events_xs = v_events_x;
   }
   // TODO what happens if this function raises?
-  caml_callback2(t->v_callback, caml_copy_nativeint((intnat)t), v_events_xs);
+  v_res = caml_callback2_exn(t->v_callback, caml_copy_nativeint((intnat)t), v_events_xs);
+  if (Is_exception_result(v_res)) {
+    t->v_exn = Extract_exception(v_res);
+    caml_register_global_root(&t->v_exn);
+    FSEventStreamStop(t->stream);
+    FSEventStreamInvalidate(t->stream);
+    CFRunLoopStop(t->runLoop);
+  }
   CAMLdrop;
   caml_release_runtime_system();
 }
@@ -115,6 +123,7 @@ CAMLprim value dune_fsevents_create(value v_paths, value v_latency,
   caml_register_global_root(&t->v_callback);
   t->v_callback = v_callback;
   t->stream = stream;
+  t->v_exn =(value) NULL;
 
   CAMLreturn(caml_copy_nativeint((intnat)t));
 }
@@ -147,12 +156,26 @@ CAMLprim value dune_fsevents_start(value v_t) {
   CAMLreturn(Val_unit);
 }
 
+CAMLprim value dune_fsevents_destroy(value v_t) {
+  CAMLparam1(v_t);
+  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
+  FSEventStreamRelease(t->stream);
+  caml_remove_global_root(&t->v_callback);
+  free(t);
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value dune_fsevents_loop(value v_t) {
   CAMLparam1(v_t);
   dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
   caml_release_runtime_system();
   CFRunLoopRun();
   caml_acquire_runtime_system();
+  if(t->v_exn) {
+    dune_fsevents_destroy(v_t);
+    caml_remove_global_root(&t->v_exn);
+    caml_raise(t->v_exn);
+  }
   CAMLreturn(Val_unit);
 }
 
@@ -168,15 +191,6 @@ CAMLprim value dune_fsevents_break(value v_t) {
   dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
   FSEventStreamInvalidate(t->stream);
   CFRunLoopStop(t->runLoop);
-  CAMLreturn(Val_unit);
-}
-
-CAMLprim value dune_fsevents_destroy(value v_t) {
-  CAMLparam1(v_t);
-  dune_fsevents_t *t = (dune_fsevents_t *)Nativeint_val(v_t);
-  FSEventStreamRelease(t->stream);
-  caml_remove_global_root(&t->v_callback);
-  free(t);
   CAMLreturn(Val_unit);
 }
 
