@@ -1,0 +1,6 @@
+(library
+ (name rdcw)
+ (libraries dyn)
+ (foreign_stubs
+  (language c)
+  (names rdcw_stubs)))
