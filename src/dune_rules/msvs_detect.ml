@@ -1,20 +1,26 @@
+open Stdune
+module Log = Dune_util.Log
+module Process = Dune_engine.Process
+
 module Arch = struct
-type t =
-    X86 | X64
+  type t =
+    | X86
+    | X64
 
-let to_dyn t =
-  let open Dyn.Encoder in
-  match t with
-  | X86 -> constr "X86" []
-  | X64 -> constr "X64" []
+  let to_dyn t =
+    let open Dyn.Encoder in
+    match t with
+    | X86 -> constr "X86" []
+    | X64 -> constr "X64" []
 
-let equal t1 t2 =
-  match t1, t2 with
-  | X86, X86 | X64, X64 -> true
-  | _ -> false
+  let equal t1 t2 =
+    match (t1, t2) with
+    | X86, X86
+    | X64, X64 ->
+      true
+    | _ -> false
 
-let hash t =
-  Hashtbl.hash t
+  let hash t = Hashtbl.hash t
 end
 
 (* let find_in path fn = *)
@@ -34,7 +40,8 @@ end
 
 (* let detect_env ~env = *)
 (*   let* cl = Bin.which ~path:(Env.path env) "cl" in *)
-(*   let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env Strict cl []) in *)
+(* let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env
+   Strict cl []) in *)
 (*   match lines with *)
 (*   | first :: _ -> *)
 (*     let arch = Re... in *)
@@ -51,14 +58,153 @@ end
 (*   | [] -> *)
 (*     None *)
 
+let exists fn =
+  match Unix.stat fn with
+  | { st_kind = S_DIR; _ } -> false
+  | exception Unix.Unix_error _ -> false
+  | _ -> true
+
+module Vswhere : sig
+  type t =
+    { installation_path : string
+    ; installation_version : string
+    ; display_name : string
+    }
+
+  val query : Env.t -> t list Memo.Build.t
+end = struct
+  type t =
+    { installation_path : string
+    ; installation_version : string
+    ; display_name : string
+    }
+
+  let parse_output l =
+    let rec loop accu ~instance_id ~installation_path ~installation_version =
+      function
+      | s :: l -> (
+        match String.lsplit2 s ~on:':' with
+        | Some ("instanceId", s) ->
+          let instance_id = Some (String.trim s) in
+          loop accu ~instance_id ~installation_path ~installation_version l
+        | Some ("installationPath", s) ->
+          let installation_path = Some (String.trim s) in
+          loop accu ~instance_id ~installation_path ~installation_version l
+        | Some ("installationVersion", s) ->
+          let installation_version = Some (String.trim s) in
+          loop accu ~instance_id ~installation_path ~installation_version l
+        | Some ("displayName", s) ->
+          let display_name = String.trim s in
+          let accu =
+            match (instance_id, installation_path, installation_version) with
+            | ( Some instance_id
+              , Some installation_path
+              , Some installation_version ) ->
+              if
+                exists
+                  (Printf.sprintf "%s\\VC\\Auxiliary\\Build\\vcvarsall.bat"
+                     installation_path)
+              then (
+                Log.info
+                  [ Pp.textf "Found instance %s at %s (%s %s)" instance_id
+                      installation_path installation_version display_name
+                  ];
+                { installation_path; installation_version; display_name }
+                :: accu
+              ) else
+                accu
+            | _ -> accu
+          in
+          loop accu ~instance_id:None ~installation_path:None
+            ~installation_version:None l
+        | None
+        | Some _ ->
+          loop accu ~instance_id ~installation_path ~installation_version l)
+      | [] -> List.rev accu
+    in
+    loop [] ~instance_id:None ~installation_path:None ~installation_version:None
+      l
+
+  let query env =
+    match Env.get env "ProgramFiles(x86)" with
+    | None -> Memo.Build.return []
+    | Some path ->
+      let path =
+        Printf.sprintf "%s\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+          path
+      in
+      if not (exists path) then
+        Memo.Build.return []
+      else
+        let open Memo.Build.O in
+        let+ l =
+          Memo.Build.of_reproducible_fiber
+            (Process.run_capture_lines ~env Strict (Path.of_string path)
+               [ "-all"; "-products"; "*"; "-nologo" ])
+        in
+        parse_output l
+end
+
+module Sdk = struct
+  let root = "HKLM\\SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows"
+
+  (* Retrieves a REG_SZ value from the registry (redirected on WOW64) *)
+  let reg_string ~env key value =
+    Process.run_capture_lines ~stderr_to:Process.Io.(null Out) ~env Strict "reg.exe"
+      [ "query"; key; "/v"; value ]
+
+  type t = { setenv_script : string }
+
+  (* Enumerate installed SDKs for v6.0+ *)
+  let query env =
+    let open Memo.Build.O in
+    let+ l =
+      Process.run_capture_lines ~stderr_to:Process.Io.(null Out) ~env Strict "reg.exe"
+        [ "query"; root ]
+    in
+    let f s =
+      match String.drop_prefix s ~prefix:"Windows\\" with
+      | None -> None
+      | Some name -> (
+        let+ install_dir =
+          reg_string (Printf.sprintf "%s\\%s" root name) "InstallationFolder"
+        in
+        match install_dir with
+        | None ->
+          Log.info
+            [ Pp.textf
+                "Registry key for Windows SDK %s doesn't contain expected \
+                 IntallationFolder value"
+                name
+            ];
+          None
+        | Some install_dir ->
+          let setenv_script =
+            Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir
+          in
+          if exists setenv_script then
+            let display_name = Printf.sprintf "Windows SDK %s" name in
+            Some { display_name; setenv_script }
+          else (
+            Log.info
+              [ Pp.textf
+                  "Registry set for Windows SDK %s, but SetEnv.cmd not found"
+                  name
+              ];
+            None
+          ))
+    in
+    List.filter_map l ~f
+end
+
 (* module Vs : sig *)
 (*   type t *)
 
-(*   val all : t list *)
+(* val all : t list *)
 
-(*   val name : t -> string *)
+(* val name : t -> string *)
 
-(*   val version : t -> int * int *)
+(* val version : t -> int * int *)
 
 (*   type result = *)
 (*     | Express *)
@@ -76,7 +222,8 @@ end
 (*     | Vs_12_0 *)
 (*     | Vs_14_0 *)
 
-(*   let all = [Vs_7_0; Vs_7_1; Vs_8_0; Vs_9_0; Vs_10_0; Vs_11_0; Vs_12_0; Vs_14_0] *)
+(* let all = [Vs_7_0; Vs_7_1; Vs_8_0; Vs_9_0; Vs_10_0; Vs_11_0; Vs_12_0;
+   Vs_14_0] *)
 
 (*   let name = function *)
 (*     | Vs_7_0 -> "Visual Studio .NET 2002" *)
@@ -117,34 +264,39 @@ end
 (*     match Env.get env var with *)
 (*     | None -> None *)
 (*     | Some v -> *)
-(*       if not (Sys.file_exists (Filename.concat v "vsvars32.bat")) then begin *)
-(*         Log.info [ Pp.textf "%s: %s set, but vsvars32.bat not found" (name t) var ]; *)
+(* if not (Sys.file_exists (Filename.concat v "vsvars32.bat")) then begin *)
+(* Log.info [ Pp.textf "%s: %s set, but vsvars32.bat not found" (name t) var
+   ]; *)
 (*         None *)
 (*       end else begin *)
 (*         let install_dir = *)
-(*           match reg_string (Printf.sprintf "%s\\VisualStudio\\%d.%d" ms_root major minor) "InstallDir" with *)
+(* match reg_string (Printf.sprintf "%s\\VisualStudio\\%d.%d" ms_root major
+   minor) "InstallDir" with *)
 (*           | "" -> *)
 (*             ... *)
 (*           | s -> Some s *)
 (*         in *)
 (*         match install_dir with *)
 (*         | "" -> *)
-(*           Log.info [ Pp.textf "%s: vsvars32.bat found, but registry settings not found" (name t) ]; *)
+(* Log.info [ Pp.textf "%s: vsvars32.bat found, but registry settings not found"
+   (name t) ]; *)
 (*           None *)
 (*         | install_dir -> *)
 (*           if ... then *)
 (*             Ok () *)
 (*           else begin *)
-(*             Log.info [ Pp.textf "%s: %s doesn't agree with registry" (name t) var ]; *)
+(* Log.info [ Pp.textf "%s: %s doesn't agree with registry" (name t) var ]; *)
 (*             None *)
 (*           end *)
 (*       end *)
 
 (*   let find_vswhere = *)
 (*     let* program_files = Env.get "ProgramFiles(x86)" in *)
-(*     let vswhere = Filename.concat program_files ("Microsoft Visual Studio\\Installer\\vswhere.exe") in *)
-(*     if Sys.file_exists vswhere then *)
-(*       let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env Strict vswhere ["-all"; "products '*'"; "-nologo"]) *)
+(* let vswhere = Filename.concat program_files ("Microsoft Visual
+   Studio\\Installer\\vswhere.exe") in *)
+(* if Sys.file_exists vswhere then *)
+(* let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env
+   Strict vswhere ["-all"; "products '*'"; "-nologo"]) *)
 (*       in *)
 (*       let rec loop = *)
 (*         match x with *)
@@ -176,7 +328,7 @@ end
 (* module Sdk : sig *)
 (*   type t *)
 
-(*   val all : t list *)
+(* val all : t list *)
 
 (*   module Found : sig *)
 (*     type nonrec t = *)
@@ -203,14 +355,17 @@ end
 (*       } *)
 (*   end *)
 
-(*   let find_5_2 env = *)
-(*     let install_dir = reg64_string "HKLM\\SOFTWARE\\Microsoft\\MicrosoftSDK\\InstalledSDKs\\8F9E5EF3-A9A5-491B-A889-C58EFFECE8B3" "Install Dir" in *)
+(* let find_5_2 env = *)
+(* let install_dir = reg64_string
+   "HKLM\\SOFTWARE\\Microsoft\\MicrosoftSDK\\InstalledSDKs\\8F9E5EF3-A9A5-491B-A889-C58EFFECE8B3"
+   "Install Dir" in *)
 (*     if install_dir <> "" then begin *)
 (*       let setenv = Filename.concat install_dir "SetEnv.cmd" in *)
 (*       if Sys.file_exists setenv then *)
 (*         Some {Found.sdk = t; setenv} *)
 (*       else begin *)
-(*         Log.info [ Pp.textf "%s: registry set for Windows Server 2003 SDK, but SetEnv.cmd not found" (name t) ]; *)
+(* Log.info [ Pp.textf "%s: registry set for Windows Server 2003 SDK, but
+   SetEnv.cmd not found" (name t) ]; *)
 (*         None *)
 (*       end *)
 (*     end else *)
@@ -220,41 +375,41 @@ end
 (*     let root = "HKLM\\SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows" in *)
 (*     let lines = "reg" [ "query" ; root ] in *)
 (*     List.filter_map (fun i -> *)
-(*         let install_dir = reg_string (Printf.sprintf "%s\\%s" sdk_root i) "InstallationFolder" in *)
-(*         if install_dir <> "" then *)
-(*           if Sys.file_exists (Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir) then *)
+(* let install_dir = reg_string (Printf.sprintf "%s\\%s" sdk_root i)
+   "InstallationFolder" in *)
+(* if install_dir <> "" then *)
+(* if Sys.file_exists (Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir) then *)
 (*           else *)
 (*             None *)
 (*         else begin *)
-(*           Log.info [ "Registry key for Windows SDK $i doesn't contain expected InstallationFolder value" ]; *)
+(* Log.info [ "Registry key for Windows SDK $i doesn't contain expected
+   InstallationFolder value" ]; *)
 (*           None *)
 (*         end *)
 (*       ) ... *)
 
 (* end *)
 
-
 type t =
-  {
-    extend_PATH: string;
-    var_LIB: string;
-    var_INCLUDE: string;
+  { extend_PATH : string
+  ; var_LIB : string
+  ; var_INCLUDE : string
   }
 
-let to_dyn {extend_PATH; var_LIB; var_INCLUDE} =
+let to_dyn { extend_PATH; var_LIB; var_INCLUDE } =
   let open Dyn.Encoder in
   record
-    [ "extend_PATH", string extend_PATH ;
-      "var_LIB", string var_LIB ;
-      "var_INCLUDE", string var_INCLUDE ]
+    [ ("extend_PATH", string extend_PATH)
+    ; ("var_LIB", string var_LIB)
+    ; ("var_INCLUDE", string var_INCLUDE)
+    ]
 
-let equal {extend_PATH; var_LIB; var_INCLUDE} t =
-  String.equal extend_PATH t.extend_PATH &&
-  String.equal var_LIB t.var_LIB &&
-  String.equal var_INCLUDE t.var_INCLUDE
+let equal { extend_PATH; var_LIB; var_INCLUDE } t =
+  String.equal extend_PATH t.extend_PATH
+  && String.equal var_LIB t.var_LIB
+  && String.equal var_INCLUDE t.var_INCLUDE
 
-let hash t =
-  Hashtbl.hash t
+let hash t = Hashtbl.hash t
 
 (* let run_test_command () = *)
 (*   let path = extend_path "?msvs-detect?;%s;%s" dir path in *)
@@ -262,4 +417,4 @@ let hash t =
 (*   let lines = spawn "%s /v:on /c %s 2>NUL" in *)
 (*   ... *)
 
-let detect arch = Memo.Build.return None
+let detect _arch = Memo.Build.return None

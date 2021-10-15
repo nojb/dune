@@ -531,24 +531,28 @@ let create ~(kind : Kind.t) ~path ~env ~env_nodes ~name ~merlin ~targets
     let arch_sixtyfour = Ocaml_config.word_size ocfg = 64 in
     let* env =
       match Ocaml_config.ccomp_type ocfg with
-      | Msvc ->
+      | Msvc -> (
         let msvs_detect =
           Memo.create "msvs-detect-memo"
             ~input:(module Msvs_detect.Arch)
             ~cutoff:(Option.equal Msvs_detect.equal)
             Msvs_detect.detect
         in
-        let+ r = Memo.exec msvs_detect (if arch_sixtyfour then X64 else X86) in
-        begin match r with
+        let+ r =
+          Memo.exec msvs_detect
+            (if arch_sixtyfour then
+              X64
+            else
+              X86)
+        in
+        match r with
         | None -> env
-        | Some {Msvs_detect.extend_PATH; var_LIB; var_INCLUDE} ->
+        | Some { Msvs_detect.extend_PATH; var_LIB; var_INCLUDE } ->
           let env = Env.add env ~var:"LIB" ~value:var_LIB in
           let env = Env.add env ~var:"INCLUDE" ~value:var_INCLUDE in
           Env.update env ~var:"PATH" ~f:(function
             | None -> Some extend_PATH
-            | Some var_PATH -> Some (sprintf "%s;%s" extend_PATH var_PATH)
-          )
-        end
+            | Some var_PATH -> Some (sprintf "%s;%s" extend_PATH var_PATH)))
       | Other _ -> Memo.Build.return env
     in
     let* ocamlopt = get_ocaml_tool "ocamlopt" in
