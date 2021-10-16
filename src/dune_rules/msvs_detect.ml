@@ -71,7 +71,7 @@ module Vswhere : sig
     ; display_name : string
     }
 
-  val query : Env.t -> t list Memo.Build.t
+  val query : unit -> t list Memo.Build.t
 end = struct
   type t =
     { installation_path : string
@@ -125,8 +125,8 @@ end = struct
     loop [] ~instance_id:None ~installation_path:None ~installation_version:None
       l
 
-  let query env =
-    match Env.get env "ProgramFiles(x86)" with
+  let query () =
+    match Env.get Env.initial "ProgramFiles(x86)" with
     | None -> Memo.Build.return []
     | Some path ->
       let path =
@@ -139,7 +139,7 @@ end = struct
         let open Memo.Build.O in
         let+ l =
           Memo.Build.of_reproducible_fiber
-            (Process.run_capture_lines ~env Strict (Path.of_string path)
+            (Process.run_capture_lines Strict (Path.of_string path)
                [ "-all"; "-products"; "*"; "-nologo" ])
         in
         parse_output l
@@ -148,53 +148,74 @@ end
 module Sdk = struct
   let root = "HKLM\\SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows"
 
-  (* Retrieves a REG_SZ value from the registry (redirected on WOW64) *)
-  let reg_string ~env key value =
-    Process.run_capture_lines ~stderr_to:Process.Io.(null Out) ~env Strict "reg.exe"
-      [ "query"; key; "/v"; value ]
+  let which prog = Bin.which ~path:(Env.path Env.initial) prog
 
-  type t = { setenv_script : string }
+  (* Retrieves a REG_SZ value from the registry (redirected on WOW64) *)
+  let reg_string key value =
+    match which "reg" with
+    | None -> Memo.Build.return None
+    | Some reg ->
+      let open Memo.Build.O in
+      let+ l =
+        Memo.Build.of_reproducible_fiber
+          (Process.run_capture_lines
+             ~stderr_to:Process.Io.(null Out)
+             Strict reg
+             [ "query"; key; "/v"; value ])
+      in
+      Some l
+
+  type t =
+    { display_name : string
+    ; setenv_script : string
+    }
 
   (* Enumerate installed SDKs for v6.0+ *)
-  let query env =
-    let open Memo.Build.O in
-    let+ l =
-      Process.run_capture_lines ~stderr_to:Process.Io.(null Out) ~env Strict "reg.exe"
-        [ "query"; root ]
-    in
-    let f s =
-      match String.drop_prefix s ~prefix:"Windows\\" with
-      | None -> None
-      | Some name -> (
-        let+ install_dir =
-          reg_string (Printf.sprintf "%s\\%s" root name) "InstallationFolder"
-        in
-        match install_dir with
-        | None ->
-          Log.info
-            [ Pp.textf
-                "Registry key for Windows SDK %s doesn't contain expected \
-                 IntallationFolder value"
-                name
-            ];
-          None
-        | Some install_dir ->
-          let setenv_script =
-            Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir
+  let query () =
+    match which "reg" with
+    | None -> Memo.Build.return []
+    | Some reg ->
+      let open Memo.Build.O in
+      let* l =
+        Memo.Build.of_reproducible_fiber
+          (Process.run_capture_lines
+             ~stderr_to:Process.Io.(null Out)
+             Strict reg [ "query"; root ])
+      in
+      let f s =
+        match String.drop_prefix s ~prefix:"Windows\\" with
+        | None -> Memo.Build.return None
+        | Some name -> (
+          let+ install_dir =
+            reg_string (Printf.sprintf "%s\\%s" root name) "InstallationFolder"
           in
-          if exists setenv_script then
-            let display_name = Printf.sprintf "Windows SDK %s" name in
-            Some { display_name; setenv_script }
-          else (
+          match install_dir with
+          | None ->
             Log.info
               [ Pp.textf
-                  "Registry set for Windows SDK %s, but SetEnv.cmd not found"
+                  "Registry key for Windows SDK %s doesn't contain expected \
+                   IntallationFolder value"
                   name
               ];
             None
-          ))
-    in
-    List.filter_map l ~f
+          | Some [ install_dir ] ->
+            let setenv_script =
+              Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir
+            in
+            if exists setenv_script then
+              let display_name = Printf.sprintf "Windows SDK %s" name in
+              Some { display_name; setenv_script }
+            else (
+              Log.info
+                [ Pp.textf
+                    "Registry set for Windows SDK %s, but SetEnv.cmd not found"
+                    name
+                ];
+              None
+            )
+          | Some _ -> assert false)
+      in
+      Memo.Build.List.filter_map l ~f
 end
 
 (* module Vs : sig *)
