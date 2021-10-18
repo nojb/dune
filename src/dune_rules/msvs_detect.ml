@@ -64,6 +64,13 @@ let exists fn =
   | exception Unix.Unix_error _ -> false
   | _ -> true
 
+module Vs : sig end = struct
+type specific = {name: string; env_var_name: string; version: int * int; arches: (arch * string) list}
+
+let query () =
+  
+end
+  
 module Vswhere : sig
   type t =
     { installation_path : string
@@ -153,7 +160,9 @@ module Sdk = struct
   (* Retrieves a REG_SZ value from the registry (redirected on WOW64) *)
   let reg_string key value =
     match which "reg" with
-    | None -> Memo.Build.return None
+    | None ->
+      Log.info "Could not find reg.exe";
+Memo.Build.return None
     | Some reg ->
       let open Memo.Build.O in
       let+ l =
@@ -311,31 +320,6 @@ end
 (*           end *)
 (*       end *)
 
-(*   let find_vswhere = *)
-(*     let* program_files = Env.get "ProgramFiles(x86)" in *)
-(* let vswhere = Filename.concat program_files ("Microsoft Visual
-   Studio\\Installer\\vswhere.exe") in *)
-(* if Sys.file_exists vswhere then *)
-(* let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env
-   Strict vswhere ["-all"; "products '*'"; "-nologo"]) *)
-(*       in *)
-(*       let rec loop = *)
-(*         match x with *)
-(*         | "instanceId" -> *)
-(*           ... *)
-(*         | "installationPath" -> *)
-(*           ... *)
-(*         | "installationVersion" -> *)
-(*           ... *)
-(*         | "displayName" -> *)
-(*           .. *)
-(*         | _ -> *)
-(*           () *)
-(*       in *)
-(*       loop 0 *)
-(*     else *)
-(*       None *)
-
 (* end *)
 
 (* module Found : sig *)
@@ -392,25 +376,6 @@ end
 (*     end else *)
 (*       None *)
 
-(*   let find_all env = *)
-(*     let root = "HKLM\\SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows" in *)
-(*     let lines = "reg" [ "query" ; root ] in *)
-(*     List.filter_map (fun i -> *)
-(* let install_dir = reg_string (Printf.sprintf "%s\\%s" sdk_root i)
-   "InstallationFolder" in *)
-(* if install_dir <> "" then *)
-(* if Sys.file_exists (Printf.sprintf "%s\\Bin\\SetEnv.cmd" install_dir) then *)
-(*           else *)
-(*             None *)
-(*         else begin *)
-(* Log.info [ "Registry key for Windows SDK $i doesn't contain expected
-   InstallationFolder value" ]; *)
-(*           None *)
-(*         end *)
-(*       ) ... *)
-
-(* end *)
-
 type t =
   { extend_PATH : string
   ; var_LIB : string
@@ -438,4 +403,7 @@ let hash t = Hashtbl.hash t
 (*   let lines = spawn "%s /v:on /c %s 2>NUL" in *)
 (*   ... *)
 
-let detect _arch = Memo.Build.return None
+let detect _arch =
+ let _ = Vswhere.query () in
+  let _ = Sdk.query () in
+Memo.Build.return None
