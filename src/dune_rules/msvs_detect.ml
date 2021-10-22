@@ -1,6 +1,8 @@
 open Stdune
 module Log = Dune_util.Log
 module Process = Dune_engine.Process
+module Predicate_lang = Dune_engine.Predicate_lang
+module Re = Dune_re
 
 module Arch = struct
   type t =
@@ -64,13 +66,13 @@ let exists fn =
   | exception Unix.Unix_error _ -> false
   | _ -> true
 
-module Vs : sig end = struct
-type specific = {name: string; env_var_name: string; version: int * int; arches: (arch * string) list}
+(* module Vs : sig end = struct *)
+(* type specific = {name: string; env_var_name: string; version: int * int; arches: (arch * string) list} *)
 
-let query () =
-  
-end
-  
+(* let query () = *)
+
+(* end *)
+
 module Vswhere : sig
   type t =
     { installation_path : string
@@ -134,22 +136,23 @@ end = struct
 
   let query () =
     match Env.get Env.initial "ProgramFiles(x86)" with
-    | None -> Memo.Build.return []
+    | None -> Log.info [ Pp.text "0" ]; Memo.Build.return []
     | Some path ->
       let path =
         Printf.sprintf "%s\\Microsoft Visual Studio\\Installer\\vswhere.exe"
           path
       in
-      if not (exists path) then
+      if not (exists path) then begin
+        Log.info [ Pp.text "vswhere.exe not found." ];
         Memo.Build.return []
-      else
+      end else (
         let open Memo.Build.O in
         let+ l =
           Memo.Build.of_reproducible_fiber
             (Process.run_capture_lines Strict (Path.of_string path)
                [ "-all"; "-products"; "*"; "-nologo" ])
         in
-        parse_output l
+        parse_output l)
 end
 
 module Sdk = struct
@@ -161,7 +164,7 @@ module Sdk = struct
   let reg_string key value =
     match which "reg" with
     | None ->
-      Log.info "Could not find reg.exe";
+      Log.info [ Pp.text "Could not find reg.exe" ];
 Memo.Build.return None
     | Some reg ->
       let open Memo.Build.O in
@@ -169,10 +172,20 @@ Memo.Build.return None
         Memo.Build.of_reproducible_fiber
           (Process.run_capture_lines
              ~stderr_to:Process.Io.(null Out)
-             Strict reg
+             (Accept Predicate_lang.any) reg
              [ "query"; key; "/v"; value ])
       in
-      Some l
+      match l with
+      | Error _ -> None
+      | Ok l ->
+    let re = Re.seq [Re.rep space; Re.str value; Re.rep1 space; Re.str "REG_SZ"; Re.rep1 space; Re.group (Re.rep any)] in
+    let re = Re.compile re in
+          let f s =
+            match Re.exec_opt re s with
+            | Some g -> Some (Re.Group.get g 1)
+            | None -> None
+          in
+          List.find_map l ~f
 
   type t =
     { display_name : string
@@ -189,8 +202,9 @@ Memo.Build.return None
         Memo.Build.of_reproducible_fiber
           (Process.run_capture_lines
              ~stderr_to:Process.Io.(null Out)
-             Strict reg [ "query"; root ])
+             (Accept Predicate_lang.any) reg [ "query"; root ])
       in
+      let l = match l with Error _ -> [] | Ok l -> l in
       let f s =
         match String.drop_prefix s ~prefix:"Windows\\" with
         | None -> Memo.Build.return None
@@ -404,6 +418,7 @@ let hash t = Hashtbl.hash t
 (*   ... *)
 
 let detect _arch =
- let _ = Vswhere.query () in
-  let _ = Sdk.query () in
-Memo.Build.return None
+  let open Memo.Build.O in
+ let+ _ = Vswhere.query ()
+  and+ _ = Sdk.query () in
+  None
