@@ -25,40 +25,53 @@ module Arch = struct
   let hash t = Hashtbl.hash t
 end
 
-(* let find_in path fn = *)
-(*   List.find path ~f:(fun dir -> Path.exists (Path.relative dir fn)) *)
+let find_in path fn =
+  List.exists path ~f:(fun dir -> Path.exists (Path.relative dir fn))
 
-(* let check_environment ~_INCLUDE ~_LIB ~_PATH arch = *)
-(*   find_in _PATH "cl.exe" && *)
-(*   find_in _PATH "rc.exe" && *)
-(*   find_in _PATH "link.exe" && *)
-(*   find_in _INCLUDE "windows.h" && *)
-(*   find_in _LIB "kernel32.lib" && *)
-(*   find_in _INCLUDE "stdlib.h" && *)
-(*   find_in _LIB "msvcrt.lib" && *)
-(*   find_in _LIB "oldnames.lib" && *)
-(*   find_in _PATH (function X86 -> "ml.exe" | X64 -> "ml64.exe") && *)
-(*   find_in _PATH "mt.exe" *)
+let check_environment ~_INCLUDE ~_LIB ~_PATH arch =
+  let _PATH = Bin.parse_path _PATH in
+  let _INCLUDE = Bin.parse_path _INCLUDE in
+  let _LIB = Bin.parse_path _LIB in
+  find_in _PATH "cl.exe" &&
+  find_in _PATH "rc.exe" &&
+  find_in _PATH "link.exe" &&
+  find_in _INCLUDE "windows.h" &&
+  find_in _LIB "kernel32.lib" &&
+  find_in _INCLUDE "stdlib.h" &&
+  find_in _LIB "msvcrt.lib" &&
+  find_in _LIB "oldnames.lib" &&
+  find_in _PATH (match arch with Arch.X86 -> "ml.exe" | X64 -> "ml64.exe") &&
+  find_in _PATH "mt.exe"
 
-(* let detect_env ~env = *)
-(*   let* cl = Bin.which ~path:(Env.path env) "cl" in *)
-(* let* lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines ~env
-   Strict cl []) in *)
-(*   match lines with *)
-(*   | first :: _ -> *)
-(*     let arch = Re... in *)
-(*     match match Env.get env "INCLUDE", Env.get env "LIB" with *)
-(*     | None, _ | _, None -> None *)
-(*     | Some _INCLUDE, Some _LIB -> *)
-(*       let _INCLUDE = Bin.parse_path _INCLUDE *)
-(*       and _LIB = Bin.parse_path _LIB in *)
-(*       if check_environment ~_INCLUDE ~_LIB ~_PATH then *)
-(*         Some cl *)
-(*       else *)
-(*         None *)
-(*     end *)
-(*   | [] -> *)
-(*     None *)
+let detect_env arch =
+let open Memo.Build.O in
+  match Bin.which ~path:(Env.path Env.initial) "cl" with
+  | None -> Memo.Build.return false
+  | Some cl ->
+let+ lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines
+~stderr_to:Process.Io.stdout
+   Strict cl []) in
+  match lines with
+  | s :: _ ->
+    let re = Re.seq Re.[str " for "; group (rep1 alnum); stop] in
+    begin match Re.exec_opt (Re.compile re) s with
+    | Some g ->
+      begin match Re.Group.get g 1, arch with
+      | ("x64" | "AMD64"), Arch.X64
+      | ("x86" | "80x86"), Arch.X86 ->
+    begin match Env.get Env.initial "INCLUDE", Env.get Env.initial "LIB", Env.get Env.initial "PATH" with
+    | Some _INCLUDE, Some _LIB, Some _PATH ->
+      let ok = check_environment ~_INCLUDE ~_LIB ~_PATH arch in
+      Log.info [Pp.textf "Compiler in environment: %B" ok];
+ok
+    | _ -> false
+    end
+      | _ -> false
+end
+      | None -> false
+end
+  | [] ->
+    false
 
 let exists fn =
   match Unix.stat fn with
@@ -174,7 +187,7 @@ let hash t = Hashtbl.hash t
 
 let magic = "?msvs-detect?"
 
-let run_test_command {Vswhere.script; _} =
+let run_test_command arch {Vswhere.script; _} =
   let env = Env.initial in
    match Env.get env "COMSPEC" with
 | None -> Memo.Build.return None
@@ -209,12 +222,15 @@ None
   | Ok l ->
 let l = List.map l ~f:String.trim in
     let rec loop = function
-| "XMARKER" :: var_PATH :: var_LIB :: var_INCLUDE :: _ ->
+| "XMARKER" :: _PATH :: _LIB :: _INCLUDE :: _ ->
         let re = Re.str magic in
-        begin match Re.exec_opt (Re.compile re) var_PATH with
+        begin match Re.exec_opt (Re.compile re) _PATH with
         | Some g ->
-             let extend_PATH = String.sub var_PATH 0 (Re.Group.start g 0) in
-    Some {extend_PATH; var_LIB; var_INCLUDE}
+             let _PATH = String.sub _PATH 0 (Re.Group.start g 0) in
+   if check_environment ~_INCLUDE ~_LIB ~_PATH arch then
+    Some {extend_PATH = _PATH; var_LIB = _LIB; var_INCLUDE = _INCLUDE}
+else
+None
 | None ->
               None
 end
@@ -223,9 +239,13 @@ end
   in
  loop l
 
-let detect _arch =
+let detect arch =
   let open Memo.Build.O in
+  let* in_env = detect_env arch in
+  if in_env then Memo.Build.return None else
  let* candidates = Vswhere.query () in
- let+ ts = Memo.Build.List.filter_map candidates ~f:run_test_command in
+ let+ ts = Memo.Build.List.filter_map candidates ~f:(run_test_command arch) in
 let open Pp.O in Log.info [ Pp.text "Found: " ++ Dyn.pp (Dyn.Encoder.list to_dyn ts) ];
-  None
+match ts with
+| t :: _ -> Some t
+| [] -> None
