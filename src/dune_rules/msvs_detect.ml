@@ -207,13 +207,6 @@ let to_dyn { extend_PATH; var_LIB; var_INCLUDE } =
     ; ("var_INCLUDE", string var_INCLUDE)
     ]
 
-let equal { extend_PATH; var_LIB; var_INCLUDE } t =
-  String.equal extend_PATH t.extend_PATH
-  && String.equal var_LIB t.var_LIB
-  && String.equal var_INCLUDE t.var_INCLUDE
-
-let hash t = Hashtbl.hash t
-
 let magic = "?msvs-detect?"
 
 let run_test_command arch { Vswhere.script; _ } =
@@ -266,11 +259,11 @@ let run_test_command arch { Vswhere.script; _ } =
       in
       loop l)
 
-let detect arch =
+let detect arch env =
   let open Memo.Build.O in
   let* ok = query_environment arch in
   if ok then
-    Memo.Build.return None
+    Memo.Build.return env
   else
     let* candidates = Vswhere.query () in
     let+ ts =
@@ -279,5 +272,10 @@ let detect arch =
     let open Pp.O in
     Log.info [ Pp.text "Found: " ++ Dyn.pp (Dyn.Encoder.list to_dyn ts) ];
     match ts with
-    | t :: _ -> Some t
-    | [] -> None
+    | { extend_PATH; var_LIB; var_INCLUDE } :: _ ->
+      let env = Env.add env ~var:"LIB" ~value:var_LIB in
+      let env = Env.add env ~var:"INCLUDE" ~value:var_INCLUDE in
+      Env.update env ~var:"PATH" ~f:(function
+        | None -> Some extend_PATH
+        | Some var_PATH -> Some (sprintf "%s;%s" extend_PATH var_PATH))
+    | [] -> env

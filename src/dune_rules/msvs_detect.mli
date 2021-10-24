@@ -1,3 +1,5 @@
+open Stdune
+
 module Arch : sig
   type t =
     | X86
@@ -10,16 +12,4 @@ module Arch : sig
   val hash : t -> int
 end
 
-type t =
-  { extend_PATH : string
-  ; var_LIB : string
-  ; var_INCLUDE : string
-  }
-
-val to_dyn : t -> Dyn.t
-
-val equal : t -> t -> bool
-
-val hash : t -> int
-
-val detect : Arch.t -> t option Memo.Build.t
+val detect : Arch.t -> Env.t -> Env.t Memo.Build.t
