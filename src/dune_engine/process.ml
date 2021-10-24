@@ -805,7 +805,6 @@ let run_capture_gen ?dir ?stderr_to ?stdin_from ?env
   let fn = Temp.create File ~prefix:"dune" ~suffix:"output" in
   let+ run =
     let stdout_to = Io.file fn Io.Out in
-    let stderr_to = match stderr_to with Some stderr_to when stderr_to == Io.stdout -> Some stdout_to | _ -> stderr_to in
     run_internal ?dir ~stdout_to ?stderr_to ?stdin_from ?env
       ~purpose fail_mode prog args
     >>| fst

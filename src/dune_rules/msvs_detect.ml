@@ -22,6 +22,14 @@ module Arch = struct
       true
     | _ -> false
 
+  let to_string = function
+    | X86 -> "x86"
+    | X64 -> "x64"
+
+  let assembler_fn = function
+    | X86 -> "ml.exe"
+    | X64 -> "ml64.exe"
+
   let hash t = Hashtbl.hash t
 end
 
@@ -40,33 +48,41 @@ let check_environment ~_INCLUDE ~_LIB ~_PATH arch =
   find_in _INCLUDE "stdlib.h" &&
   find_in _LIB "msvcrt.lib" &&
   find_in _LIB "oldnames.lib" &&
-  find_in _PATH (match arch with Arch.X86 -> "ml.exe" | X64 -> "ml64.exe") &&
+  find_in _PATH (Arch.assembler_fn arch) &&
   find_in _PATH "mt.exe"
 
 let detect_env arch =
-let open Memo.Build.O in
   match Bin.which ~path:(Env.path Env.initial) "cl" with
   | None -> Memo.Build.return false
   | Some cl ->
-let+ lines = Memo.Build.of_reproducible_fiber (Process.run_capture_lines
-~stderr_to:Process.Io.stdout
+let open Memo.Build.O in
+Log.info [Pp.textf "Environment contains CL compiler at %s" (Path.to_string cl)];
+let fn = Temp.create File ~prefix:"cl" ~suffix:".out" in
+let+ () = Memo.Build.of_reproducible_fiber (Process.run
+~stdout_to:(Process.Io.null Out)
+~stderr_to:(Process.Io.file fn Out)
    Strict cl []) in
-  match lines with
+  match Io.lines_of_file fn with
   | s :: _ ->
     let re = Re.seq Re.[str " for "; group (rep1 alnum); stop] in
     begin match Re.exec_opt (Re.compile re) s with
     | Some g ->
-      begin match Re.Group.get g 1, arch with
+       let s = Re.Group.get g 1 in
+      begin match s, arch with
       | ("x64" | "AMD64"), Arch.X64
-      | ("x86" | "80x86"), Arch.X86 ->
+      | ("x86" | "80x86"), X86 ->
     begin match Env.get Env.initial "INCLUDE", Env.get Env.initial "LIB", Env.get Env.initial "PATH" with
     | Some _INCLUDE, Some _LIB, Some _PATH ->
       let ok = check_environment ~_INCLUDE ~_LIB ~_PATH arch in
-      Log.info [Pp.textf "Compiler in environment: %B" ok];
-ok
-    | _ -> false
+      if not ok then Log.info [Pp.textf "Incomplete compiler installation, environment CL %s excluded" s];
+      ok
+    | _ ->
+Log.info [Pp.textf "INCLUDE and/or LIB not set, environment CL %s excluded" s];
+false
     end
-      | _ -> false
+      | _ ->
+Log.info [Pp.textf "CL architecture does not match required value (%s != %s)" s (Arch.to_string arch)];
+false
 end
       | None -> false
 end
@@ -206,12 +222,12 @@ let run_test_command arch {Vswhere.script; _} =
 (
   let fn = Temp.create File ~prefix:"msvs-detect" ~suffix:".bat" in
   Stdune.Io.with_file_out fn ~f:(fun oc ->
-    output_string oc (Filename.basename script ^ " x64 && echo XMARKER && echo !PATH! && echo !LIB! && echo !INCLUDE!");
-    output_char oc '\n'
+    Printf.fprintf oc "%s %s && echo XMARKER && echo !PATH! && echo !LIB! && echo !INCLUDE!\n"
+      (Filename.basename script) (Arch.to_string arch)
 );
     Process.run_capture_lines (Accept Predicate_lang.any) (Path.of_string cmd)
              ~dir:(Path.of_string (Filename.dirname script))
-           ~stderr_to:Process.Io.(null Out)
+           ~stderr_to:(Process.Io.null Out)
 ~env
              [ "/v:on"; "/c"; Path.to_string fn])
   in
