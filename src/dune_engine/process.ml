@@ -805,8 +805,8 @@ let run_capture_gen ?dir ?stderr_to ?stdin_from ?env
   let fn = Temp.create File ~prefix:"dune" ~suffix:"output" in
   let+ run =
     let stdout_to = Io.file fn Io.Out in
-    run_internal ?dir ~stdout_to ?stderr_to ?stdin_from ?env
-      ~purpose fail_mode prog args
+    run_internal ?dir ~stdout_to ?stderr_to ?stdin_from ?env ~purpose fail_mode
+      prog args
     >>| fst
   in
   map_result fail_mode run ~f:(fun () ->

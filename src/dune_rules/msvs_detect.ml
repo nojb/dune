@@ -40,54 +40,73 @@ let check_environment ~_INCLUDE ~_LIB ~_PATH arch =
   let _PATH = Bin.parse_path _PATH in
   let _INCLUDE = Bin.parse_path _INCLUDE in
   let _LIB = Bin.parse_path _LIB in
-  find_in _PATH "cl.exe" &&
-  find_in _PATH "rc.exe" &&
-  find_in _PATH "link.exe" &&
-  find_in _INCLUDE "windows.h" &&
-  find_in _LIB "kernel32.lib" &&
-  find_in _INCLUDE "stdlib.h" &&
-  find_in _LIB "msvcrt.lib" &&
-  find_in _LIB "oldnames.lib" &&
-  find_in _PATH (Arch.assembler_fn arch) &&
-  find_in _PATH "mt.exe"
+  find_in _PATH "cl.exe" && find_in _PATH "rc.exe" && find_in _PATH "link.exe"
+  && find_in _INCLUDE "windows.h"
+  && find_in _LIB "kernel32.lib"
+  && find_in _INCLUDE "stdlib.h"
+  && find_in _LIB "msvcrt.lib"
+  && find_in _LIB "oldnames.lib"
+  && find_in _PATH (Arch.assembler_fn arch)
+  && find_in _PATH "mt.exe"
 
-let detect_env arch =
+let query_environment arch =
   match Bin.which ~path:(Env.path Env.initial) "cl" with
   | None -> Memo.Build.return false
-  | Some cl ->
-let open Memo.Build.O in
-Log.info [Pp.textf "Environment contains CL compiler at %s" (Path.to_string cl)];
-let fn = Temp.create File ~prefix:"cl" ~suffix:".out" in
-let+ () = Memo.Build.of_reproducible_fiber (Process.run
-~stdout_to:(Process.Io.null Out)
-~stderr_to:(Process.Io.file fn Out)
-   Strict cl []) in
-  match Io.lines_of_file fn with
-  | s :: _ ->
-    let re = Re.seq Re.[str " for "; group (rep1 alnum); stop] in
-    begin match Re.exec_opt (Re.compile re) s with
-    | Some g ->
-       let s = Re.Group.get g 1 in
-      begin match s, arch with
-      | ("x64" | "AMD64"), Arch.X64
-      | ("x86" | "80x86"), X86 ->
-    begin match Env.get Env.initial "INCLUDE", Env.get Env.initial "LIB", Env.get Env.initial "PATH" with
-    | Some _INCLUDE, Some _LIB, Some _PATH ->
-      let ok = check_environment ~_INCLUDE ~_LIB ~_PATH arch in
-      if not ok then Log.info [Pp.textf "Incomplete compiler installation, environment CL %s excluded" s];
-      ok
-    | _ ->
-Log.info [Pp.textf "INCLUDE and/or LIB not set, environment CL %s excluded" s];
-false
-    end
-      | _ ->
-Log.info [Pp.textf "CL architecture does not match required value (%s != %s)" s (Arch.to_string arch)];
-false
-end
-      | None -> false
-end
-  | [] ->
-    false
+  | Some cl -> (
+    let open Memo.Build.O in
+    Log.info
+      [ Pp.textf "Environment contains CL compiler at %s" (Path.to_string cl) ];
+    let fn = Temp.create File ~prefix:"cl" ~suffix:".out" in
+    let+ res =
+      Memo.Build.of_reproducible_fiber
+        (Process.run ~stdout_to:(Process.Io.null Out)
+           ~stderr_to:(Process.Io.file fn Out) (Accept Predicate_lang.any) cl [])
+    in
+    match res with
+    | Error _ -> false
+    | Ok () -> (
+      match Io.lines_of_file fn with
+      | s :: _ -> (
+        let re = Re.seq Re.[ str " for "; group (rep1 alnum); stop ] in
+        match Re.exec_opt (Re.compile re) s with
+        | Some g -> (
+          let s = Re.Group.get g 1 in
+          match (s, arch) with
+          | ("x64" | "AMD64"), Arch.X64
+          | ("x86" | "80x86"), X86 -> (
+            match
+              (Env.get Env.initial "INCLUDE", Env.get Env.initial "LIB")
+            with
+            | Some _INCLUDE, Some _LIB ->
+              let _PATH =
+                match Env.get Env.initial "PATH" with
+                | None -> ""
+                | Some s -> s
+              in
+              let ok = check_environment ~_INCLUDE ~_LIB ~_PATH arch in
+              if not ok then
+                Log.info
+                  [ Pp.textf
+                      "Incomplete compiler installation, environment CL %s \
+                       excluded"
+                      s
+                  ];
+              ok
+            | _ ->
+              Log.info
+                [ Pp.textf
+                    "INCLUDE and/or LIB not set, environment CL %s excluded" s
+                ];
+              false)
+          | _ ->
+            Log.info
+              [ Pp.textf
+                  "CL architecture does not match required value (%s != %s)" s
+                  (Arch.to_string arch)
+              ];
+            false)
+        | None -> false)
+      | [] -> false))
 
 let exists fn =
   match Unix.stat fn with
@@ -97,87 +116,81 @@ let exists fn =
 
 module Vswhere : sig
   type t =
-    { installation_path : string
-    ; installation_version : string
-    ; display_name : string
+    { path : string
+    ; version : string
+    ; name : string
     ; script : string
     }
 
   val query : unit -> t list Memo.Build.t
 end = struct
   type t =
-    { installation_path : string
-    ; installation_version : string
-    ; display_name : string
+    { path : string
+    ; version : string
+    ; name : string
     ; script : string
     }
 
   let parse_output l =
-    let rec loop accu ~instance_id ~installation_path ~installation_version =
-      function
+    let rec loop accu ~id ~path ~version = function
+      | [] -> List.rev accu
       | s :: l -> (
         match String.lsplit2 s ~on:':' with
         | Some ("instanceId", s) ->
-          let instance_id = Some (String.trim s) in
-          loop accu ~instance_id ~installation_path ~installation_version l
+          let id = Some (String.trim s) in
+          loop accu ~id ~path ~version l
         | Some ("installationPath", s) ->
-          let installation_path = Some (String.trim s) in
-          loop accu ~instance_id ~installation_path ~installation_version l
+          let path = Some (String.trim s) in
+          loop accu ~id ~path ~version l
         | Some ("installationVersion", s) ->
-          let installation_version = Some (String.trim s) in
-          loop accu ~instance_id ~installation_path ~installation_version l
+          let version = Some (String.trim s) in
+          loop accu ~id ~path ~version l
         | Some ("displayName", s) ->
-          let display_name = String.trim s in
+          let name = String.trim s in
           let accu =
-            match (instance_id, installation_path, installation_version) with
-            | ( Some instance_id
-              , Some installation_path
-              , Some installation_version ) ->
+            match (id, path, version) with
+            | Some id, Some path, Some version ->
               let script =
-                  (Printf.sprintf "%s\\VC\\Auxiliary\\Build\\vcvarsall.bat"
-                     installation_path) in
-              if
-                exists script
-              then (
+                Printf.sprintf "%s\\VC\\Auxiliary\\Build\\vcvarsall.bat" path
+              in
+              if exists script then (
                 Log.info
-                  [ Pp.textf "Found instance %s at %s (%s %s)" instance_id
-                      installation_path installation_version display_name
+                  [ Pp.textf "Found instance %s at %s (%s %s)" id path version
+                      name
                   ];
-                { installation_path; installation_version; display_name; script }
-                :: accu
+                { path; version; name; script } :: accu
               ) else
                 accu
             | _ -> accu
           in
-          loop accu ~instance_id:None ~installation_path:None
-            ~installation_version:None l
+          loop accu ~id:None ~path:None ~version:None l
         | None
         | Some _ ->
-          loop accu ~instance_id ~installation_path ~installation_version l)
-      | [] -> List.rev accu
+          loop accu ~id ~path ~version l)
     in
-    loop [] ~instance_id:None ~installation_path:None ~installation_version:None
-      l
+    loop [] ~id:None ~path:None ~version:None l
 
   let query () =
     match Env.get Env.initial "ProgramFiles(x86)" with
-    | None -> Log.info [ Pp.text "0" ]; Memo.Build.return []
-    | Some path ->
+    | None -> Memo.Build.return []
+    | Some path -> (
       let path =
         Printf.sprintf "%s\\Microsoft Visual Studio\\Installer\\vswhere.exe"
           path
       in
-      if not (exists path) then begin
-        Log.info [ Pp.text "vswhere.exe not found." ];
+      if not (exists path) then
         Memo.Build.return []
-      end else (
+      else
         let open Memo.Build.O in
         let+ l =
           Memo.Build.of_reproducible_fiber
-            (Process.run_capture_lines Strict (Path.of_string path)
+            (Process.run_capture_lines (Accept Predicate_lang.any)
+               (Path.of_string path)
                [ "-all"; "-products"; "*"; "-nologo" ])
         in
-        parse_output l)
+        match l with
+        | Error _ -> []
+        | Ok l -> parse_output l)
 end
 
 type t =
@@ -203,65 +216,68 @@ let hash t = Hashtbl.hash t
 
 let magic = "?msvs-detect?"
 
-let run_test_command arch {Vswhere.script; _} =
+let run_test_command arch { Vswhere.script; _ } =
   let env = Env.initial in
-   match Env.get env "COMSPEC" with
-| None -> Memo.Build.return None
-| Some cmd ->
-  let env = Env.remove env ~var:"LIB" in
-  let env = Env.remove env ~var:"INCLUDE" in
-  let env = Env.update env ~var:"PATH" ~f:(fun oldpath ->
-    let oldpath = match oldpath with None -> "" | Some oldpath -> ";" ^ oldpath in
-    Some (Printf.sprintf "%s;%s" magic oldpath)
-   )
-  in
-  let env = Env.remove env ~var:"ORIGINALPATH" in
-  let open Memo.Build.O in
-  let+ l =
-          Memo.Build.of_reproducible_fiber
-(
-  let fn = Temp.create File ~prefix:"msvs-detect" ~suffix:".bat" in
-  Stdune.Io.with_file_out fn ~f:(fun oc ->
-    Printf.fprintf oc "%s %s && echo XMARKER && echo !PATH! && echo !LIB! && echo !INCLUDE!\n"
-      (Filename.basename script) (Arch.to_string arch)
-);
-    Process.run_capture_lines (Accept Predicate_lang.any) (Path.of_string cmd)
-             ~dir:(Path.of_string (Filename.dirname script))
-           ~stderr_to:(Process.Io.null Out)
-~env
-             [ "/v:on"; "/c"; Path.to_string fn])
-  in
-  match l with
-  | Error n ->
-Log.info [Pp.textf "error %d" n];
-None
-  | Ok l ->
-let l = List.map l ~f:String.trim in
-    let rec loop = function
-| "XMARKER" :: _PATH :: _LIB :: _INCLUDE :: _ ->
-        let re = Re.str magic in
-        begin match Re.exec_opt (Re.compile re) _PATH with
-        | Some g ->
-             let _PATH = String.sub _PATH 0 (Re.Group.start g 0) in
-   if check_environment ~_INCLUDE ~_LIB ~_PATH arch then
-    Some {extend_PATH = _PATH; var_LIB = _LIB; var_INCLUDE = _INCLUDE}
-else
-None
-| None ->
+  match Env.get env "COMSPEC" with
+  | None -> Memo.Build.return None
+  | Some cmd -> (
+    let env = Env.remove env ~var:"LIB" in
+    let env = Env.remove env ~var:"INCLUDE" in
+    let env =
+      Env.update env ~var:"PATH" ~f:(fun oldpath ->
+          match oldpath with
+          | None -> Some magic
+          | Some oldpath -> Some (Printf.sprintf "%s;%s" magic oldpath))
+    in
+    let env = Env.remove env ~var:"ORIGINALPATH" in
+    let open Memo.Build.O in
+    let+ l =
+      let fn = Temp.create File ~prefix:"msvs-detect" ~suffix:".bat" in
+      Stdune.Io.with_file_out fn ~f:(fun oc ->
+          Printf.fprintf oc
+            "%s %s && echo XMARKER && echo !PATH! && echo !LIB! && echo \
+             !INCLUDE!\n"
+            (Filename.basename script) (Arch.to_string arch));
+      Memo.Build.of_reproducible_fiber
+        (Process.run_capture_lines (Accept Predicate_lang.any)
+           (Path.of_string cmd)
+           ~dir:(Path.of_string (Filename.dirname script))
+           ~stderr_to:(Process.Io.null Out) ~env
+           [ "/v:on"; "/c"; Path.to_string fn ])
+    in
+    match l with
+    | Error _ -> None
+    | Ok l ->
+      let l = List.map l ~f:String.trim in
+      let rec loop = function
+        | "XMARKER" :: _PATH :: _LIB :: _INCLUDE :: _ -> (
+          let re = Re.str magic in
+          match Re.exec_opt (Re.compile re) _PATH with
+          | Some g ->
+            let _PATH = String.sub _PATH ~pos:0 ~len:(Re.Group.start g 0) in
+            if check_environment ~_INCLUDE ~_LIB ~_PATH arch then
+              Some
+                { extend_PATH = _PATH; var_LIB = _LIB; var_INCLUDE = _INCLUDE }
+            else
               None
-end
-| _ :: l -> loop l
-| [] -> None
-  in
- loop l
+          | None -> None)
+        | _ :: l -> loop l
+        | [] -> None
+      in
+      loop l)
 
 let detect arch =
   let open Memo.Build.O in
-  let* in_env = detect_env arch in
-  if in_env then Memo.Build.return None else
- let* candidates = Vswhere.query () in
- let+ ts = Memo.Build.List.filter_map candidates ~f:(run_test_command arch) in
-let open Pp.O in Log.info [ Pp.text "Found: " ++ Dyn.pp (Dyn.Encoder.list to_dyn ts) ];
-match ts with
-| t :: _ -> Some t
-| [] -> None
+  let* ok = query_environment arch in
+  if ok then
+    Memo.Build.return None
+  else
+    let* candidates = Vswhere.query () in
+    let+ ts =
+      Memo.Build.List.filter_map candidates ~f:(run_test_command arch)
+    in
+    let open Pp.O in
+    Log.info [ Pp.text "Found: " ++ Dyn.pp (Dyn.Encoder.list to_dyn ts) ];
+    match ts with
+    | t :: _ -> Some t
+    | [] -> None
