@@ -8,11 +8,14 @@ module File : sig
   type t =
     { path : Path.t
     ; dialect : Dialect.t
+    ; is_empty : bool
     }
 
   val path : t -> Path.t
 
-  val make : Dialect.t -> Path.t -> t
+  val is_empty : t -> bool
+
+  val make : ?is_empty:bool -> Dialect.t -> Path.t -> t
 end
 
 module Kind : sig
@@ -59,6 +62,8 @@ val source : t -> ml_kind:Ml_kind.t -> File.t option
 val pp_flags : t -> (string list Action_builder.t * Sandbox_config.t) option
 
 val file : t -> ml_kind:Ml_kind.t -> Path.t option
+
+val is_empty : t -> ml_kind:Ml_kind.t -> bool option
 
 val obj_name : t -> Module_name.Unique.t
 

@@ -66,6 +66,7 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
   let* compiler = Result.to_option (Context.compiler ctx mode) in
   let ml_kind = Cm_kind.source cm_kind in
   let+ src = Module.file m ~ml_kind in
+  let is_empty = Option.value ~default:true (Module.is_empty m ~ml_kind) in
   let dst = Obj_dir.Module.cm_file_exn obj_dir m ~kind:cm_kind in
   let obj =
     Obj_dir.Module.obj_file obj_dir m ~kind:Cmx ~ext:ctx.lib_config.ext_obj
@@ -156,11 +157,21 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
     | Some Fdo.Emit -> Path.build linear_fdo
     | Some Fdo.Compile | Some Fdo.All | None -> src
   in
-  let modules = Compilation_context.modules cctx in
+  let opens =
+    if is_empty then Command.Args.empty
+    else opens (Compilation_context.modules cctx) m
+  in
   let obj_dirs =
-    Obj_dir.all_obj_dirs obj_dir ~mode
-    |> List.concat_map ~f:(fun p ->
-           [ Command.Args.A "-I"; Path (Path.build p) ])
+    if is_empty then Command.Args.empty
+    else
+      Command.Args.S
+        (Obj_dir.all_obj_dirs obj_dir ~mode
+        |> List.concat_map ~f:(fun p ->
+               [ Command.Args.A "-I"; Path (Path.build p) ]))
+  in
+  let includes =
+    if is_empty then Command.Args.empty
+    else Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
   in
   SC.add_rule sctx ~dir
     (let open Action_builder.With_targets.O in
@@ -169,13 +180,13 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
     >>> Command.run ~dir:(Path.build dir) (Ok compiler)
           [ Command.Args.dyn flags
           ; cmt_args
-          ; Command.Args.S obj_dirs
-          ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
+          ; obj_dirs
+          ; includes
           ; As extra_args
           ; A "-no-alias-deps"
           ; opaque_arg
           ; As (Fdo.phase_flags phase)
-          ; opens modules m
+          ; opens
           ; As
               (match stdlib with
               | None -> []
@@ -373,4 +384,5 @@ let with_empty_intf ~sctx ~dir module_ =
   in
   let open Memo.Build.O in
   let+ () = Super_context.add_rule sctx ~dir rule in
-  Module.add_file module_ Ml_kind.Intf (Module.File.make Dialect.ocaml name)
+  Module.add_file module_ Ml_kind.Intf
+    (Module.File.make ~is_empty:true Dialect.ocaml name)

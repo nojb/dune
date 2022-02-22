@@ -6,19 +6,26 @@ module File = struct
   type t =
     { path : Path.t
     ; dialect : Dialect.t
+    ; is_empty : bool
     }
 
   let path t = t.path
+
+  let is_empty t = t.is_empty
 
   let set_src_dir t ~src_dir =
     let path = Path.relative src_dir (Path.basename t.path) in
     { t with path }
 
-  let make dialect path = { dialect; path }
+  let make ?(is_empty = false) dialect path = { dialect; path; is_empty }
 
-  let to_dyn { path; dialect } =
+  let to_dyn { path; dialect; is_empty } =
     let open Dyn in
-    record [ ("path", Path.to_dyn path); ("dialect", Dialect.to_dyn dialect) ]
+    record
+      [ ("path", Path.to_dyn path)
+      ; ("dialect", Dialect.to_dyn dialect)
+      ; ("is_empty", bool is_empty)
+      ]
 end
 
 module Kind = struct
@@ -166,6 +173,8 @@ let source t ~(ml_kind : Ml_kind.t) = Ml_kind.Dict.get t.source.files ml_kind
 
 let file t ~(ml_kind : Ml_kind.t) = source t ~ml_kind |> Option.map ~f:File.path
 
+let is_empty t ~ml_kind = Option.map ~f:File.is_empty (source t ~ml_kind)
+
 let obj_name t = t.obj_name
 
 let iter t ~f =
@@ -215,6 +224,7 @@ let wrapped_compat t =
               [ ".wrapped_compat"
               ; Module_name.to_string t.source.name ^ ml_gen
               ]
+        ; is_empty = false
         }
     in
     { t.source with files = { intf = None; impl } }
