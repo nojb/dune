@@ -162,33 +162,39 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
     |> List.concat_map ~f:(fun p ->
            [ Command.Args.A "-I"; Path (Path.build p) ])
   in
+  let ooi_deps = Path.Build.extend_basename ~suffix:".ooi-deps" output in
   SC.add_rule sctx ~dir
     (let open Action_builder.With_targets.O in
     Action_builder.with_no_targets (Action_builder.paths extra_deps)
     >>> Action_builder.with_no_targets other_cm_files
-    >>> Command.run ~dir:(Path.build dir) (Ok compiler)
-          [ Command.Args.dyn flags
-          ; cmt_args
-          ; Command.Args.S obj_dirs
-          ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
-          ; As extra_args
-          ; A "-no-alias-deps"
-          ; opaque_arg
-          ; As (Fdo.phase_flags phase)
-          ; opens modules m
-          ; As
-              (match stdlib with
-              | None -> []
-              | Some _ ->
-                (* XXX why aren't these just normal library flags? *)
-                [ "-nopervasives"; "-nostdlib" ])
-          ; A "-o"
-          ; Target output
-          ; A "-c"
-          ; Command.Ml_kind.flag ml_kind
-          ; Dep src
-          ; Hidden_targets other_targets
-          ]
+    >>> Action_builder.With_targets.map2
+          (Command.run ~dir:(Path.build dir) (Ok compiler)
+             [ Command.Args.dyn flags
+             ; cmt_args
+             ; Command.Args.S obj_dirs
+             ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
+             ; As extra_args
+             ; A "-no-alias-deps"
+             ; opaque_arg
+             ; As (Fdo.phase_flags phase)
+             ; opens modules m
+             ; As
+                 (match stdlib with
+                 | None -> []
+                 | Some _ ->
+                   (* XXX why aren't these just normal library flags? *)
+                   [ "-nopervasives"; "-nostdlib" ])
+             ; A "-o"
+             ; Target output
+             ; A "-c"
+             ; Command.Ml_kind.flag ml_kind
+             ; Dep src
+             ; Hidden_targets other_targets
+             ])
+          (Command.run ~dir:(Path.build dir) ctx.ocamlobjinfo
+             [ A "-no-approx"; A "-no-code"; Path (Path.build output) ]
+             ~stdout_to:ooi_deps)
+          ~f:Action.Full.combine
     >>| Action.Full.add_sandbox sandbox))
   |> Memo.Build.Option.iter ~f:Fun.id
 
