@@ -15,7 +15,7 @@ module Includes = struct
            (let+ libs = requires in
             Command.Args.S
               [ iflags libs Byte
-              ; Hidden_deps (Lib_file_deps.deps libs ~groups:[ Cmi ])
+              ; Order_only_deps (Lib_file_deps.deps libs ~groups:[ Cmi ])
               ]))
     in
     let cmx_includes =
@@ -24,7 +24,7 @@ module Includes = struct
            (let+ libs = requires in
             Command.Args.S
               [ iflags libs Native
-              ; Hidden_deps
+              ; Order_only_deps
                   (if opaque then
                    List.map libs ~f:(fun lib ->
                        ( lib

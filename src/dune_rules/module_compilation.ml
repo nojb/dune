@@ -46,6 +46,24 @@ let copy_interface ~sctx ~dir ~obj_dir m =
            ~src:(Path.build (Obj_dir.Module.cm_file_exn obj_dir m ~kind:Cmi))
            ~dst:(Obj_dir.Module.cm_public_file_exn obj_dir m ~kind:Cmi)))
 
+let cm_pred m ooi cm_kind =
+  let id =
+    lazy
+      (Dyn.variant "Module_compilation"
+         [ Module_name.to_dyn (Module.name m); Cm_kind.to_dyn cm_kind ])
+  in
+  let ext = Cm_kind.ext cm_kind in
+  let units =
+    Module_name.Unique.Set.remove
+      (Ml_kind.Dict.get ooi (Cm_kind.source cm_kind))
+      (Module_name.Unique.of_name_assuming_needs_no_mangling (Module.name m))
+  in
+  Predicate.create ~id ~f:(fun p ->
+      (* Printf.printf "[cmi] %s\n%!" p; *)
+      String.equal (Filename.extension p) ext
+      && Module_name.Unique.Set.mem units
+           (Module_name.Unique.of_string (Filename.basename p)))
+
 let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
   let sctx = CC.super_context cctx in
   let dir = CC.dir cctx in
@@ -167,34 +185,65 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
     (let open Action_builder.With_targets.O in
     Action_builder.with_no_targets (Action_builder.paths extra_deps)
     >>> Action_builder.with_no_targets other_cm_files
-    >>> Action_builder.With_targets.map2
-          (Command.run ~dir:(Path.build dir) (Ok compiler)
-             [ Command.Args.dyn flags
-             ; cmt_args
-             ; Command.Args.S obj_dirs
-             ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
-             ; As extra_args
-             ; A "-no-alias-deps"
-             ; opaque_arg
-             ; As (Fdo.phase_flags phase)
-             ; opens modules m
-             ; As
-                 (match stdlib with
-                 | None -> []
-                 | Some _ ->
-                   (* XXX why aren't these just normal library flags? *)
-                   [ "-nopervasives"; "-nostdlib" ])
-             ; A "-o"
-             ; Target output
-             ; A "-c"
-             ; Command.Ml_kind.flag ml_kind
-             ; Dep src
-             ; Hidden_targets other_targets
-             ])
-          (Command.run ~dir:(Path.build dir) ctx.ocamlobjinfo
-             [ A "-no-approx"; A "-no-code"; Path (Path.build output) ]
-             ~stdout_to:ooi_deps)
-          ~f:Action.Full.combine
+    >>> Action_builder.progn
+          [ Command.run ~dir:(Path.build dir) (Ok compiler)
+              [ Command.Args.dyn flags
+              ; cmt_args
+              ; Command.Args.S obj_dirs
+              ; Command.Args.as_any
+                  (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
+              ; As extra_args
+              ; A "-no-alias-deps"
+              ; opaque_arg
+              ; As (Fdo.phase_flags phase)
+              ; opens modules m
+              ; As
+                  (match stdlib with
+                  | None -> []
+                  | Some _ ->
+                    (* XXX why aren't these just normal library flags? *)
+                    [ "-nopervasives"; "-nostdlib" ])
+              ; A "-o"
+              ; Target output
+              ; A "-c"
+              ; Command.Ml_kind.flag ml_kind
+              ; Dep src
+              ; Hidden_targets other_targets
+              ]
+          ; Command.run ~dir:(Path.build dir) ctx.ocamlobjinfo
+              [ A "-no-approx"; A "-no-code"; Path (Path.build output) ]
+              ~stdout_to:ooi_deps
+          ; Action_builder.with_no_targets
+              (let open Action_builder.O in
+              let* ooi =
+                Action_builder.map ~f:Ocamlobjinfo.parse
+                  (Action_builder.contents (Path.build ooi_deps))
+              and* libs = Resolve.Build.read (CC.requires_compile cctx) in
+              Printf.printf "self: %s\n%!"
+                (Module_name.to_string (Module.name m));
+              let cmi_pred = cm_pred m ooi Cmi in
+              let cmx_pred = cm_pred m ooi Cmx in
+              let add_deps deps lib =
+                Printf.printf "add_deps: %s\n%!"
+                  (Lib_name.to_string (Lib.name lib));
+                let obj_dir = Lib.obj_dir lib in
+                let add deps ~dir pred =
+                  Dep.Set.add deps
+                    (Dep.file_selector (File_selector.create ~dir pred))
+                in
+                let deps =
+                  add deps ~dir:(Obj_dir.public_cmi_dir obj_dir) cmi_pred
+                in
+                if cm_kind = Cmx && not opaque then
+                  add deps ~dir:(Obj_dir.native_dir obj_dir) cmx_pred
+                else deps
+              in
+              let+ () =
+                Action_builder.deps
+                  (List.fold_left ~f:add_deps ~init:Dep.Set.empty libs)
+              in
+              Action.Full.make (Action.progn []))
+          ]
     >>| Action.Full.add_sandbox sandbox))
   |> Memo.Build.Option.iter ~f:Fun.id
 
