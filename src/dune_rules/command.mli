@@ -58,6 +58,7 @@ module Args : sig
     | Path : Path.t -> _ t
     | Paths : Path.t list -> _ t
     | Hidden_deps : Dep.Set.t -> _ t
+    | Order_only_deps : Dep.Set.t -> _ t
     | Hidden_targets : Path.Build.t list -> [> `Targets ] t
     | Dyn : without_targets t Action_builder.t -> _ t
     | Fail : fail -> _ t

@@ -25,6 +25,7 @@ module Args0 = struct
     | Path : Path.t -> _ t
     | Paths : Path.t list -> _ t
     | Hidden_deps : Dep.Set.t -> _ t
+    | Order_only_deps : Dep.Set.t -> _ t
     | Hidden_targets : Path.Build.t list -> [> `Targets ] t
     | Dyn : without_targets t Action_builder.t -> _ t
     | Fail : fail -> _ t
@@ -44,6 +45,7 @@ module Args0 = struct
     | Path _ as x -> (x :> any t)
     | Paths _ as x -> (x :> any t)
     | Hidden_deps _ as x -> (x :> any t)
+    | Order_only_deps _ as x -> (x :> any t)
     | Dyn _ as x -> (x :> any t)
     | Fail _ as x -> (x :> any t)
     | Expand _ as x -> (x :> any t)
@@ -85,6 +87,11 @@ let rec expand :
   | Hidden_deps deps ->
     Action_builder.with_no_targets
       (Action_builder.map (Action_builder.deps deps) ~f:(fun () -> []))
+  | Order_only_deps deps ->
+    Action_builder.with_no_targets
+      (Action_builder.map
+         (Action_builder.goal (Action_builder.deps deps))
+         ~f:(fun () -> []))
   | Hidden_targets fns ->
     Action_builder.with_file_targets ~file_targets:fns
       (Action_builder.return [])
