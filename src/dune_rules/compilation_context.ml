@@ -4,7 +4,7 @@ open Import
 module SC = Super_context
 
 module Includes = struct
-  type t = { entry_modules : Lib.t Module_name.Map.t Resolve.Memo.t }
+  type t = Lib.t Module_name.Map.t Resolve.Memo.t
 
   let args ~project ~opaque ~requires_compile ~requires ~cm_kind =
     let iflags libs mode = Lib.L.include_flags ~project libs mode in
@@ -32,23 +32,20 @@ module Includes = struct
            ])
 
   let make ~requires : t =
-    let entry_modules =
-      let open Resolve.Memo.O in
-      let* requires = requires in
-      let f acc lib =
-        let+ entry_modules = Lib.entry_module_names lib in
-        let f acc entry_module =
-          match Module_name.Map.add acc entry_module lib with
-          | Ok acc -> acc
-          | Error _ -> acc
-        in
-        List.fold_left entry_modules ~f ~init:acc
+    let open Resolve.Memo.O in
+    let* requires = requires in
+    let f acc lib =
+      let+ entry_modules = Lib.entry_module_names lib in
+      let f acc entry_module =
+        match Module_name.Map.add acc entry_module lib with
+        | Ok acc -> acc
+        | Error _ -> acc
       in
-      Resolve.Memo.List.fold_left requires ~f ~init:Module_name.Map.empty
+      List.fold_left entry_modules ~f ~init:acc
     in
-    { entry_modules }
+    Resolve.Memo.List.fold_left requires ~f ~init:Module_name.Map.empty
 
-  let empty = { entry_modules = Resolve.Memo.return Module_name.Map.empty }
+  let empty = Resolve.Memo.return Module_name.Map.empty
 end
 
 type opaque =
@@ -119,7 +116,7 @@ let includes t ~cm_kind m =
       let ml_kind = Cm_kind.source cm_kind in
       let+ deps =
         Ocamldep.raw_read_immediate_deps_of ~obj_dir:t.obj_dir ~ml_kind m
-      and+ entry_modules = Resolve.Memo.read t.includes.entry_modules in
+      and+ entry_modules = Resolve.Memo.read t.includes in
       let f acc dep =
         match
           Module_name.Map.find entry_modules (Module_name.of_string dep)
