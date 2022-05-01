@@ -141,3 +141,5 @@ val generated : src_dir:Path.t -> Module_name.t -> t
 val generated_alias : src_dir:Path.Build.t -> Module_name.t -> t
 
 val generated_root : src_dir:Path.Build.t -> Module_name.t -> t
+
+val is_generated : t -> bool

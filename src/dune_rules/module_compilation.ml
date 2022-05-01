@@ -170,7 +170,7 @@ let build_cm cctx ~precompiled_cmi ~cm_kind (m : Module.t) ~phase =
           [ Command.Args.dyn flags
           ; cmt_args
           ; Command.Args.S obj_dirs
-          ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) cm_kind)
+          ; Command.Args.as_any (Command.Args.Dyn (CC.includes cctx ~cm_kind m))
           ; As extra_args
           ; A "-no-alias-deps"
           ; opaque_arg
@@ -253,7 +253,8 @@ let ocamlc_i ?(flags = []) ~deps cctx (m : Module.t) ~output =
              [ Command.Args.dyn ocaml_flags
              ; A "-I"
              ; Path (Path.build (Obj_dir.byte_dir obj_dir))
-             ; Command.Args.as_any (Cm_kind.Dict.get (CC.includes cctx) Cmo)
+             ; Command.Args.as_any
+                 (Command.Args.Dyn (CC.includes cctx ~cm_kind:Cmo m))
              ; opens modules m
              ; As flags
              ; A "-short-paths"

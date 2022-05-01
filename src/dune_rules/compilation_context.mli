@@ -67,7 +67,11 @@ val requires_link : t -> Lib.t list Resolve.Memo.t
 
 val requires_compile : t -> Lib.t list Resolve.Memo.t
 
-val includes : t -> Command.Args.without_targets Command.Args.t Cm_kind.Dict.t
+val includes :
+     t
+  -> cm_kind:Cm_kind.t
+  -> Module.t
+  -> Command.Args.without_targets Command.Args.t Action_builder.t
 
 val preprocessing : t -> Pp_spec.t
 

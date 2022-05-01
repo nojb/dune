@@ -334,6 +334,11 @@ let generated_root ~src_dir name =
   let t = generated ~src_dir name in
   { t with kind = Root; visibility = Private }
 
+let is_generated m =
+  match Ml_kind.Dict.get m.source.files Ml_kind.Impl with
+  | None -> false
+  | Some file -> String.ends_with ~suffix:ml_gen (Path.to_string file.path)
+
 let of_source ~visibility ~kind source = of_source ~visibility ~kind source
 
 module Name_map = struct

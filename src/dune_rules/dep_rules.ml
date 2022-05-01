@@ -111,11 +111,8 @@ let for_module md module_ =
 
 let rules md =
   let modules = md.modules in
-  match Modules.as_singleton modules with
-  | Some m -> Memo.return (Dep_graph.Ml_kind.dummy m)
-  | None ->
-    dict_of_func_concurrently (fun ~ml_kind ->
-        let+ per_module =
-          Modules.obj_map_build modules ~f:(deps_of md ~ml_kind)
-        in
-        Dep_graph.make ~dir:md.dir ~per_module)
+  dict_of_func_concurrently (fun ~ml_kind ->
+      let+ per_module =
+        Modules.obj_map_build modules ~f:(deps_of md ~ml_kind)
+      in
+      Dep_graph.make ~dir:md.dir ~per_module)

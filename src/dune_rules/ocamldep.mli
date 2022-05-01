@@ -42,3 +42,9 @@ val read_immediate_deps_of :
   -> ml_kind:Ml_kind.t
   -> Module.t
   -> Module.t list Action_builder.t
+
+val raw_read_immediate_deps_of :
+     obj_dir:Path.Build.t Obj_dir.t
+  -> ml_kind:Ml_kind.t
+  -> Module.t
+  -> Module_name.t list Action_builder.t

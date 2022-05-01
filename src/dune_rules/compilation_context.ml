@@ -4,41 +4,51 @@ open Import
 module SC = Super_context
 
 module Includes = struct
-  type t = Command.Args.without_targets Command.Args.t Cm_kind.Dict.t
+  type t = { entry_modules : Lib.t Module_name.Map.t Resolve.Memo.t }
 
-  let make ~project ~opaque ~requires : _ Cm_kind.Dict.t =
-    let open Resolve.Memo.O in
+  let args ~project ~opaque ~requires_compile ~requires ~cm_kind =
     let iflags libs mode = Lib.L.include_flags ~project libs mode in
-    let cmi_includes =
+    match cm_kind with
+    | Cm_kind.Cmo | Cmi ->
       Command.Args.memo
-        (Resolve.Memo.args
-           (let+ libs = requires in
-            Command.Args.S
-              [ iflags libs Byte
-              ; Hidden_deps (Lib_file_deps.deps libs ~groups:[ Cmi ])
-              ]))
-    in
-    let cmx_includes =
+        (Command.Args.S
+           [ iflags requires_compile Byte
+           ; Hidden_deps (Lib_file_deps.deps requires ~groups:[ Cmi ])
+           ])
+    | Cmx ->
       Command.Args.memo
-        (Resolve.Memo.args
-           (let+ libs = requires in
-            Command.Args.S
-              [ iflags libs Native
-              ; Hidden_deps
-                  (if opaque then
-                   List.map libs ~f:(fun lib ->
-                       ( lib
-                       , if Lib.is_local lib then [ Lib_file_deps.Group.Cmi ]
-                         else [ Cmi; Cmx ] ))
-                   |> Lib_file_deps.deps_with_exts
-                  else
-                    Lib_file_deps.deps libs
-                      ~groups:[ Lib_file_deps.Group.Cmi; Cmx ])
-              ]))
-    in
-    { cmi = cmi_includes; cmo = cmi_includes; cmx = cmx_includes }
+        (Command.Args.S
+           [ iflags requires_compile Native
+           ; Hidden_deps
+               (if opaque then
+                List.map requires ~f:(fun lib ->
+                    ( lib
+                    , if Lib.is_local lib then [ Lib_file_deps.Group.Cmi ]
+                      else [ Cmi; Cmx ] ))
+                |> Lib_file_deps.deps_with_exts
+               else
+                 Lib_file_deps.deps requires
+                   ~groups:[ Lib_file_deps.Group.Cmi; Cmx ])
+           ])
 
-  let empty = Cm_kind.Dict.make_all Command.Args.empty
+  let make ~requires : t =
+    let entry_modules =
+      let open Resolve.Memo.O in
+      let* requires = requires in
+      let f acc lib =
+        let+ entry_modules = Lib.entry_module_names lib in
+        let f acc entry_module =
+          match Module_name.Map.add acc entry_module lib with
+          | Ok acc -> acc
+          | Error _ -> acc
+        in
+        List.fold_left entry_modules ~f ~init:acc
+      in
+      Resolve.Memo.List.fold_left requires ~f ~init:Module_name.Map.empty
+    in
+    { entry_modules }
+
+  let empty = { entry_modules = Resolve.Memo.return Module_name.Map.empty }
 end
 
 type opaque =
@@ -99,7 +109,25 @@ let requires_compile t = t.requires_compile
 
 let requires_link t = Memo.Lazy.force t.requires_link
 
-let includes t = t.includes
+let includes t ~cm_kind m =
+  let open Action_builder.O in
+  let+ requires_compile = Resolve.Memo.read t.requires_compile
+  and+ requires =
+    if Module.is_generated m then Resolve.Memo.read t.requires_compile
+    else
+      let ml_kind = Cm_kind.source cm_kind in
+      let+ deps =
+        Ocamldep.raw_read_immediate_deps_of ~obj_dir:t.obj_dir ~ml_kind m
+      and+ entry_modules = Resolve.Memo.read t.includes.entry_modules in
+      let f acc dep =
+        match Module_name.Map.find entry_modules dep with
+        | Some lib -> lib :: acc
+        | None -> acc
+      in
+      List.fold_left deps ~f ~init:[]
+  in
+  let project = Scope.project t.scope in
+  Includes.args ~project ~opaque:t.opaque ~requires_compile ~requires ~cm_kind
 
 let preprocessing t = t.preprocessing
 
@@ -170,7 +198,7 @@ let create ~super_context ~scope ~expander ~obj_dir ~modules ~flags
   ; flags
   ; requires_compile
   ; requires_link
-  ; includes = Includes.make ~project ~opaque ~requires:requires_compile
+  ; includes = Includes.make ~requires:requires_compile
   ; preprocessing
   ; opaque
   ; stdlib
