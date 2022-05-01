@@ -120,7 +120,9 @@ let includes t ~cm_kind m =
         Ocamldep.raw_read_immediate_deps_of ~obj_dir:t.obj_dir ~ml_kind m
       and+ entry_modules = Resolve.Memo.read t.includes.entry_modules in
       let f acc dep =
-        match Module_name.Map.find entry_modules dep with
+        match
+          Module_name.Map.find entry_modules (Module_name.of_string dep)
+        with
         | Some lib -> lib :: acc
         | None -> acc
       in
