@@ -123,10 +123,10 @@ let includes t ~cm_kind m =
         match
           Module_name.Map.find entry_modules (Module_name.of_string dep)
         with
-        | Some lib -> lib :: acc
+        | Some lib -> Lib.Set.add acc lib
         | None -> acc
       in
-      List.fold_left deps ~f ~init:[]
+      Lib.Set.to_list (List.fold_left deps ~f ~init:Lib.Set.empty)
   in
   let project = Scope.project t.scope in
   Includes.args ~project ~opaque:t.opaque ~requires_compile ~requires ~cm_kind
