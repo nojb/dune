@@ -111,9 +111,10 @@ let requires_link t = Memo.Lazy.force t.requires_link
 
 let includes t ~cm_kind m =
   let open Action_builder.O in
-  let+ requires_compile = Resolve.Memo.read t.requires_compile
+  let requires_compile = Resolve.Memo.read t.requires_compile in
+  let+ requires_compile = requires_compile
   and+ requires =
-    if Module.is_generated m then Resolve.Memo.read t.requires_compile
+    if Module.is_generated m then requires_compile
     else
       let ml_kind = Cm_kind.source cm_kind in
       let+ deps =
