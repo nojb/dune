@@ -117,6 +117,7 @@ let includes t ~cm_kind m =
       let+ deps =
         Ocamldep.raw_read_immediate_deps_of ~obj_dir:t.obj_dir ~ml_kind m
       and+ entry_modules = Resolve.Memo.read t.includes in
+      let deps = "Ocaml_shadow" :: deps in
       let f acc dep =
         match
           Module_name.Map.find entry_modules (Module_name.of_string dep)
