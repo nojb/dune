@@ -50,7 +50,7 @@ external stub_wait3 :
   Unix.wait_flag list -> int * Unix.process_status * float * Resource_usage.t
   = "dune_wait3"
 
-let wait flags =
+let wait_unix flags =
   if Sys.win32 then Code_error.raise "wait3 not available on windows" []
   else
     let pid, status, end_time, resource_usage = stub_wait3 flags in
@@ -59,3 +59,15 @@ let wait flags =
     ; end_time
     ; resource_usage = Some resource_usage
     }
+
+external stub_wait_for_multiple_objects : int list -> int * Unix.process_status = "dune_WaitForMultipleObjects"
+
+let wait_win32 pids =
+  if not Sys.win32 then Code_error.raise "WaitForMultipleObjects not available on unix" []
+  else
+    let pid, status = stub_wait_for_multiple_objects (List.map ~f:Pid.to_int pids) in
+    let end_time = Unix.gettimeofday () in
+    { Process_info.pid = Pid.of_int pid;
+      status;
+      end_time;
+      resource_usage = None }

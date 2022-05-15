@@ -606,39 +606,16 @@ end = struct
     Process_table.iter t ~f:(fun job -> kill_process_group job.pid signal);
     Mutex.unlock t.mutex
 
-  exception Finished of Proc.Process_info.t
-
-  let wait_nonblocking_win32 t =
-    try
-      Process_table.iter t ~f:(fun job ->
-          let pid, status = Unix.waitpid [ WNOHANG ] (Pid.to_int job.pid) in
-          if pid <> 0 then
-            let now = Unix.gettimeofday () in
-            let info : Proc.Process_info.t =
-              { pid = Pid.of_int pid
-              ; status
-              ; end_time = now
-              ; resource_usage = None
-              }
-            in
-            raise_notrace (Finished info));
-      false
-    with Finished proc_info ->
-      (* We need to do the [Unix.waitpid] and remove the process while holding
-         the lock, otherwise the pid might be reused in between. *)
-      Process_table.remove t proc_info;
-      true
-
   let wait_win32 t =
-    while not (wait_nonblocking_win32 t) do
-      Mutex.unlock t.mutex;
-      Thread.delay 0.001;
-      Mutex.lock t.mutex
-    done
+    let pids = Table.keys t.table in
+    Mutex.unlock t.mutex;
+    let proc_info = Proc.wait_win32 pids in
+    Mutex.lock t.mutex;
+    Process_table.remove t proc_info
 
   let wait_unix t =
     Mutex.unlock t.mutex;
-    let proc_info = Proc.wait [] in
+    let proc_info = Proc.wait_unix [] in
     Mutex.lock t.mutex;
     Process_table.remove t proc_info
 
