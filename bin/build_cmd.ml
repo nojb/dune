@@ -173,9 +173,18 @@ let build =
     ]
   in
   let name_ = Arg.info [] ~docv:"TARGET" in
+  let alias_ = Arg.info [ "alias" ] ~docv:"ALIAS" in
   let term =
     let+ common = Common.term
-    and+ targets = Arg.(value & pos_all dep [] name_) in
+    and+ targets = Arg.(value & pos_all dep [] name_)
+    and+ aliases = Arg.(value & opt_all string [] alias_) in
+    let targets =
+      let alias_rec s =
+        Arg.Dep.alias_rec ~dir:Stdune.Path.Local.root
+          (Dune_engine.Alias.Name.of_string s)
+      in
+      List.map ~f:alias_rec aliases @ targets
+    in
     let targets =
       match targets with
       | [] -> [ Common.default_target common ]
