@@ -24,3 +24,6 @@
   Usage: dune build [OPTION]... [TARGET]...
   Try `dune build --help' or `dune --help' for more information.
   [1]
+
+  $ dune build --force --alias foo
+  Hello!
