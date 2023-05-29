@@ -458,7 +458,7 @@ value fswatch_win_wait(value v_fsenv, value v_debounce) {
   struct fsenv *fsenv = Fsenv_val(v_fsenv);
 
   if (fsenv == NULL)
-    caml_invalid_argument("Fswatch_win.wait: already shut down");
+    return Val_emptylist;
 
   caml_release_runtime_system();
   DWORD res = WaitForSingleObject(fsenv->signal, INFINITE);
@@ -484,11 +484,14 @@ value fswatch_win_shutdown(value v_fsenv) {
 
   Fsenv_val(v_fsenv) = NULL;
 
+  caml_release_runtime_system();
+
+  /* Make sure to wake up waiting thread */
+  SetEvent(fsenv->signal);
+
   if (PostQueuedCompletionStatus(fsenv->completionPort, 0, 0, (LPOVERLAPPED)SHUTDOWN) == 0) {
     unix_error("PostQueuedCompletionStatus", GetLastError());
   }
-
-  caml_release_runtime_system();
 
   if (WaitForSingleObject(fsenv->thread, 2000) != WAIT_OBJECT_0)
     DEBUG("thread did not terminate in time");

@@ -139,6 +139,7 @@ type kind =
   | Inotify of Inotify_lib.t
   | Fswatch_win of
       { t : Fswatch_win.t
+      ; stopped : bool ref
       ; scheduler : Scheduler.t
       }
 
@@ -192,7 +193,7 @@ let shutdown t =
         Fsevents.stop fsevents.sync;
         Watch_trie.to_list fsevents.external_
         |> List.iter ~f:(fun (_, fs) -> Fsevents.stop fs))
-  | Fswatch_win { t; _ } -> `Thunk (fun () -> Fswatch_win.shutdown t)
+  | Fswatch_win { t; stopped; _ } -> `Thunk (fun () -> stopped := true; Fswatch_win.shutdown t)
 
 let buffer_capacity = 65536
 
@@ -614,14 +615,15 @@ let create_fswatch_win ~(scheduler : Scheduler.t) ~debounce_interval:sleep
   let sync_table = Table.create (module String) 64 in
   let t = Fswatch_win.create () in
   Fswatch_win.add t (Path.to_absolute_filename Path.root);
+  let stopped = ref false in
   scheduler.spawn_thread (fun () ->
-      while true do
+      while not !stopped do
         let events = Fswatch_win.wait t ~sleep in
         List.iter
           ~f:(fswatch_win_callback ~scheduler ~sync_table ~should_exclude)
           events
       done);
-  { kind = Fswatch_win { t; scheduler }; sync_table }
+  { kind = Fswatch_win { t; stopped; scheduler }; sync_table }
 
 let create_external ~root ~debounce_interval ~scheduler ~backend =
   match debounce_interval with
