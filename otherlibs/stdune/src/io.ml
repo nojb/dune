@@ -109,6 +109,7 @@ module Copyfile = struct
     match Platform.OS.value with
     | Darwin -> `Copyfile
     | Linux -> `Sendfile
+    | Windows -> `Win32_Copyfile
     | _ -> `Nothing
   ;;
 
@@ -201,10 +202,15 @@ module Copyfile = struct
       copy_channels ic oc)
   ;;
 
+  external win32_copyfile : string -> string -> unit = "stdune_CopyFile"
+
+  let win32_copyfile ?chmod:_ ~src ~dst () = win32_copyfile src dst
+
   let copy_file_best =
     match available with
     | `Sendfile -> sendfile_with_fallback
     | `Copyfile -> copyfile
+    | `Win32_Copyfile -> win32_copyfile
     | `Nothing -> copy_file_portable
   ;;
 

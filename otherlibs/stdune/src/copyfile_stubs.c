@@ -50,14 +50,17 @@ CAMLprim value stdune_copyfile(value v_from, value v_to) {
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value stdune_sendfile(value v_in, value v_out, value v_size) {
-  (void)v_in;
-  (void)v_out;
-  (void)v_size;
-  caml_failwith("sendfile: linux");
+#else
+
+CAMLprim value stdune_copyfile(value v_from, value v_to) {
+  (void)v_from;
+  (void)v_to;
+  caml_failwith("copyfile: only on macos");
 }
 
-#elif __linux__
+#endif
+
+#if __linux__
 
 #include <caml/threads.h>
 #include <caml/unixsupport.h>
@@ -66,12 +69,6 @@ CAMLprim value stdune_sendfile(value v_in, value v_out, value v_size) {
 #include <unistd.h>
 
 #define FD_val(value) Int_val(value)
-
-CAMLprim value stdune_copyfile(value v_from, value v_to) {
-  (void)v_from;
-  (void)v_to;
-  caml_failwith("copyfile: only on macos");
-}
 
 static int dune_sendfile(int in, int out, int length) {
   int ret;
@@ -104,13 +101,59 @@ CAMLprim value stdune_sendfile(value v_in, value v_out, value v_size) {
   (void)v_in;
   (void)v_out;
   (void)v_size;
-  caml_failwith("sendfile: linux");
+  caml_failwith("sendfile: only on linux");
 }
 
-CAMLprim value stdune_copyfile(value v_from, value v_to) {
-  (void)v_from;
-  (void)v_to;
-  caml_failwith("copyfile: only on macos");
+#endif
+
+#ifdef _WIN32
+
+#include <caml/alloc.h>
+#include <caml/threads.h>
+#include <caml/unixsupport.h>
+#include <Windows.h>
+
+static WCHAR* utf8_to_utf16(const char *s) {
+  WCHAR *w;
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+  if (wlen == 0) {
+    win32_maperr(GetLastError());
+    uerror("MultiByteToWideChar", Nothing);
+  }
+  w = caml_stat_alloc(sizeof(WCHAR) * wlen);
+  if (MultiByteToWideChar(CP_UTF8, 0, s, -1, w, wlen) == 0) {
+    win32_maperr(GetLastError());
+    uerror("MultiByteToWideChar", Nothing);
+  }
+  return w;
+}
+
+CAMLprim value stdune_CopyFile(value v_from, value v_to) {
+  CAMLparam2(v_from, v_to);
+  WCHAR *w_from, *w_to;
+  BOOL ok;
+  caml_unix_check_path(v_from, "stdune_CopyFile");
+  caml_unix_check_path(v_to, "stdune_CopyFile");
+  w_from = utf8_to_utf16(String_val(v_from));
+  w_to = utf8_to_utf16(String_val(v_to));
+  caml_release_runtime_system();
+  ok = CopyFileW(w_from, w_to, FALSE);
+  caml_acquire_runtime_system();
+  caml_stat_free(w_from);
+  caml_stat_free(w_to);
+  if (!ok) {
+    win32_maperr(GetLastError());
+    uerror("CopyFile", Nothing);
+  }
+  CAMLreturn(Val_unit);
+}
+
+#else
+
+CAMLprim value stdune_CopyFile(value v_in, value v_out) {
+  (void)v_in;
+  (void)v_out;
+  caml_failwith("CopyFile: only on Windows");
 }
 
 #endif
