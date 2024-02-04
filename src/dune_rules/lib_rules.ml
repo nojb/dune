@@ -267,7 +267,7 @@ let foreign_rules (library : Foreign.Library.t) ~sctx ~expander ~dir ~dir_conten
     | _ -> Action_builder.return []
   in
   let c_library_flags =
-    Expander.expand_and_eval_set expander Ordered_set_lang.Unexpanded.standard ~standard
+    Expander.expand_and_eval_set expander library.library_flags ~standard
   in
   ocamlmklib
     ~archive_name

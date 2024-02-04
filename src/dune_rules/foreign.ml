@@ -254,6 +254,7 @@ module Library = struct
     ; archive_name_loc : Loc.t
     ; stubs : Stubs.t
     ; enabled_if : Blang.t
+    ; library_flags : Ordered_set_lang.Unexpanded.t
     }
 
   let decode =
@@ -262,8 +263,13 @@ module Library = struct
       (let+ archive_name_loc, archive_name =
          located (field "archive_name" Archive.Name.decode)
        and+ stubs = Stubs.decode_stubs ~for_library:true
-       and+ enabled_if = Enabled_if.decode ~allowed_vars:Any ~since:(Some (3, 14)) () in
-       { archive_name; archive_name_loc; stubs; enabled_if })
+       and+ enabled_if = Enabled_if.decode ~allowed_vars:Any ~since:(Some (3, 14)) ()
+       and+ library_flags =
+         Ordered_set_lang.Unexpanded.field
+           ~check:(Dune_lang.Syntax.since Stanza.syntax (3, 14))
+           "library_flags"
+       in
+       { archive_name; archive_name_loc; stubs; enabled_if; library_flags })
   ;;
 
   include Stanza.Make (struct

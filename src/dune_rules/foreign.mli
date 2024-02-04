@@ -158,6 +158,7 @@ module Library : sig
     ; archive_name_loc : Loc.t
     ; stubs : Stubs.t
     ; enabled_if : Blang.t
+    ; library_flags : Ordered_set_lang.Unexpanded.t
     }
 
   val decode : t Dune_lang.Decoder.t
