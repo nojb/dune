@@ -1,6 +1,3 @@
-[@@@alert unstable "The API of this library is not stable and may change without notice."]
-[@@@alert "-unstable"]
-
 module Appendable_list = Appendable_list
 module Nonempty_list = Nonempty_list
 module Ansi_color = Ansi_color

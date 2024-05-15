@@ -326,6 +326,7 @@ let setup_emit_cmj_rules
     in
     let* () = Module_compilation.build_all cctx in
     let* requires_compile = Compilation_context.requires_compile cctx in
+    let requires_compile = Resolve.map ~f:(List.map ~f:fst) requires_compile in
     let stdlib_dir = (Compilation_context.ocaml cctx).lib_config.stdlib_dir in
     let+ () =
       let emit_and_libs_deps =

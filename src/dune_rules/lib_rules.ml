@@ -578,6 +578,7 @@ let library_rules
   let dir = Compilation_context.dir cctx in
   let scope = Compilation_context.scope cctx in
   let* requires_compile = Compilation_context.requires_compile cctx in
+  let requires_compile = Resolve.map ~f:(List.map ~f:fst) requires_compile in
   let ocaml = Compilation_context.ocaml cctx in
   let* requires_link = Compilation_context.requires_link cctx in
   let stdlib_dir = ocaml.lib_config.stdlib_dir in

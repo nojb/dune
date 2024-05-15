@@ -407,6 +407,7 @@ let setup_library_odoc_rules cctx (local_lib : Lib.Local.t) =
   let modules = Compilation_context.modules cctx in
   let* includes =
     let+ requires = Compilation_context.requires_compile cctx in
+    let requires = Resolve.map ~f:(List.map ~f:fst) requires in
     let package = Lib_info.package info in
     let odoc_include_flags =
       Command.Args.memo (odoc_include_flags ctx package requires)

@@ -32,7 +32,7 @@ let cctx_rules cctx =
            (requires_link \ req_compile) *)
         let* req_link = Compilation_context.requires_link cctx in
         let+ req_compile = Compilation_context.requires_compile cctx in
-        List.filter req_link ~f:(fun l -> not (List.exists req_compile ~f:(Lib.equal l)))
+        List.fold_left req_link ~init:[] ~f:(fun acc l -> if not (List.exists req_compile ~f:(fun (l', _) -> Lib.equal l l')) then (l, true) :: acc else acc)
       in
       Lib_flags.L.include_flags non_compile_libs (Lib_mode.Ocaml Byte)
     in

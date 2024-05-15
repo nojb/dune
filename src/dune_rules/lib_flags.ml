@@ -92,10 +92,23 @@ module L = struct
        |> List.rev)
   ;;
 
+  let to_flags dirs =
+    Command.Args.S
+      (Path.Map.foldi dirs ~init:[] ~f:(fun dir direct acc ->
+         Command.Args.Path dir :: A (if direct then "-I" else "-H") :: acc)
+       |> List.rev)
+  ;;
+
   let remove_stdlib dirs libs =
     match libs with
     | [] -> dirs
     | lib :: _ -> Path.Set.remove dirs (Lib.lib_config lib).stdlib_dir
+  ;;
+
+  let remove_stdlib_map dirs libs =
+    match libs with
+    | [] -> dirs
+    | (lib, _) :: _ -> Path.Map.remove dirs (Lib.lib_config lib).stdlib_dir
   ;;
 
   type mode =
@@ -103,7 +116,60 @@ module L = struct
     ; melange_emit : bool
     }
 
-  let include_paths =
+  let include_paths_map =
+    let add_public_dir ~visible_cmi obj_dir acc mode (direct : bool) =
+      match visible_cmi with
+      | false -> acc
+      | true ->
+        let public_cmi_dirs =
+          List.map
+            ~f:(fun f -> f obj_dir)
+            (match mode with
+             | { lib_mode = Ocaml _; _ } -> [ Obj_dir.public_cmi_ocaml_dir ]
+             | { lib_mode = Melange; melange_emit = false } ->
+               [ Obj_dir.public_cmi_melange_dir ]
+             | { lib_mode = Melange; melange_emit = true } ->
+               (* Add the dir where `.cmj` files exist, even for installed
+                  private libraries. Melange needs to query `.cmj` files for
+                  `import` information *)
+               [ Obj_dir.melange_dir; Obj_dir.public_cmi_melange_dir ])
+        in
+        List.fold_left public_cmi_dirs ~init:acc ~f:(fun acc path ->
+          Path.Map.set acc path direct)
+    in
+    fun ?project ts mode ->
+      let visible_cmi =
+        match project with
+        | None -> fun _ -> true
+        | Some project ->
+          let check_project lib =
+            match Lib.project lib with
+            | None -> false
+            | Some project' -> Dune_project.equal project project'
+          in
+          fun lib ->
+            (match Lib_info.status (Lib.info lib) with
+             | Private (_, Some _) | Installed_private -> check_project lib
+             | _ -> true)
+      in
+      let dirs =
+        List.fold_left ts ~init:Path.Map.empty ~f:(fun acc (t, direct) ->
+          let obj_dir = Lib_info.obj_dir (Lib.info t) in
+          let visible_cmi = visible_cmi t in
+          match mode.lib_mode with
+          | Melange -> add_public_dir ~visible_cmi obj_dir acc mode direct
+          | Ocaml ocaml_mode ->
+            let acc = add_public_dir ~visible_cmi obj_dir acc mode direct in
+            (match ocaml_mode with
+             | Byte -> acc
+             | Native ->
+               let native_dir = Obj_dir.native_dir obj_dir in
+               Path.Map.set acc native_dir direct))
+      in
+      remove_stdlib_map dirs ts
+  ;;
+
+  (*let include_paths =
     let add_public_dir ~visible_cmi obj_dir acc mode =
       match visible_cmi with
       | false -> acc
@@ -153,10 +219,16 @@ module L = struct
                Path.Set.add acc native_dir))
       in
       remove_stdlib dirs ts
+  ;;*)
+
+  let include_paths ?project ts mode =
+    let ts = List.map ~f:(fun lib -> lib, true) ts in
+    let paths = include_paths_map ?project ts mode in
+    Path.Map.foldi ~init:Path.Set.empty ~f:(fun path _ acc -> Path.Set.add acc path) paths
   ;;
 
   let include_flags ?project ts mode =
-    to_iflags (include_paths ?project ts { lib_mode = mode; melange_emit = false })
+    to_flags (include_paths_map ?project ts { lib_mode = mode; melange_emit = false })
   ;;
 
   let melange_emission_include_flags ?project ts =

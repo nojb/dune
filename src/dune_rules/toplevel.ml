@@ -113,6 +113,7 @@ let setup_module_rules t =
   let sctx = Compilation_context.super_context t.cctx in
   let path = Source.source_path t.source in
   let requires_compile = Compilation_context.requires_compile t.cctx in
+  let requires_compile = Resolve.Memo.map ~f:(List.map ~f:fst) requires_compile in
   let main_ml =
     let open Action_builder.O in
     Action_builder.write_file_dyn

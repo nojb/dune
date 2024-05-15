@@ -23,8 +23,8 @@ module L : sig
   type nonrec t = Lib.t list
 
   val to_iflags : Path.Set.t -> _ Command.Args.t
-  val include_paths : ?project:Dune_project.t -> t -> Lib_mode.t -> Path.Set.t
-  val include_flags : ?project:Dune_project.t -> t -> Lib_mode.t -> _ Command.Args.t
+  val include_paths : ?project:Dune_project.t -> Lib.t list -> Lib_mode.t -> Path.Set.t
+  val include_flags :  ?project:Dune_project.t -> (Lib.t * bool) list -> Lib_mode.t -> _ Command.Args.t
   val melange_emission_include_flags : ?project:Dune_project.t -> t -> _ Command.Args.t
   val c_include_flags : t -> Super_context.t -> _ Command.Args.t
   val toplevel_ld_paths : t -> Path.Set.t
