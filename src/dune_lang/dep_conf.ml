@@ -50,8 +50,9 @@ type t =
   | Env_var of String_with_vars.t
   | Sandbox_config of Sandbox_config.t
   | Include of string
+  | Goal of t
 
-let remove_locs = function
+let rec remove_locs = function
   | File sw -> File (String_with_vars.remove_locs sw)
   | Alias sw -> Alias (String_with_vars.remove_locs sw)
   | Alias_rec sw -> Alias_rec (String_with_vars.remove_locs sw)
@@ -62,6 +63,7 @@ let remove_locs = function
   | Env_var sw -> Env_var sw
   | Sandbox_config s -> Sandbox_config s
   | Include s -> Include s
+  | Goal t -> Goal (remove_locs t)
 ;;
 
 let decode files =
@@ -72,7 +74,7 @@ let decode files =
       let* loc = loc in
       User_error.raise ~loc [ Pp.text "only files are allowed in this position" ]
   in
-  let decode =
+  let decode decode =
     let sw = String_with_vars.decode in
     sum
       ~force_parens:true
@@ -103,9 +105,12 @@ let decode files =
         , let+ () = Syntax.since Stanza.syntax (3, 1)
           and+ filename = filename in
           Include filename )
+      ; ( "goal"
+        , let+ t = decode in
+          Goal t )
       ]
   in
-  decode
+  fix decode
   <|> let+ x = String_with_vars.decode in
       File x
 ;;
@@ -115,7 +120,7 @@ let decode = decode `Allow
 
 open Dune_sexp
 
-let encode = function
+let rec encode = function
   | File t -> List [ Dune_sexp.atom "file"; String_with_vars.encode t ]
   | Alias t -> List [ Dune_sexp.atom "alias"; String_with_vars.encode t ]
   | Alias_rec t -> List [ Dune_sexp.atom "alias_rec"; String_with_vars.encode t ]
@@ -130,6 +135,7 @@ let encode = function
   | Env_var t -> List [ Dune_sexp.atom "env_var"; String_with_vars.encode t ]
   | Sandbox_config t -> Sandbox_config.encode t
   | Include t -> List [ Dune_sexp.atom "include"; Dune_sexp.atom t ]
+  | Goal t -> List [ Dune_sexp.atom "goal"; encode t ]
 ;;
 
 let to_dyn t = Dune_sexp.to_dyn (encode t)

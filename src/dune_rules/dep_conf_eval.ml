@@ -256,6 +256,10 @@ let rec dep expander : Dep_conf.t -> _ = function
        let+ () = Action_builder.env_var var in
        [])
   | Sandbox_config _ -> Other (Action_builder.return [])
+  | Goal t ->
+    (match dep expander t with
+     | Simple _ as x -> x
+     | Other t -> Other (Action_builder.goal t))
 
 and named_paths_builder ~expander l =
   let builders, bindings =
