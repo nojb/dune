@@ -563,6 +563,9 @@ let rec expand (t : Dune_lang.Action.t) : Action.t Action_expander.t =
   | Withenv _ | Substitute _ | Patch _ | When _ ->
     (* these can only be provided by the package language which isn't expanded here *)
     assert false
+  | Read_actual_deps path ->
+    let+ path = E.dep path in
+    O.Read_actual_deps path
 ;;
 
 let expand_no_targets t ~loc ~chdir ~deps:deps_written_by_user ~expander ~what =
