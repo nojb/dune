@@ -54,6 +54,7 @@ module type Ast = sig
     | Merge_files_into of path list * string list * target
     | Pipe of Outputs.t * t list
     | Extension of ext
+    | Read_actual_deps of path
 end
 
 module type Helpers = sig

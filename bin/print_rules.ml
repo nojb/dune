@@ -115,6 +115,7 @@ let rec encode : Action.For_shell.t -> Dune_lang.t =
   | Pipe (outputs, l) ->
     List (atom (sprintf "pipe-%s" (Outputs.to_string outputs)) :: List.map l ~f:encode)
   | Extension ext -> List [ atom "ext"; ext ]
+  | Read_actual_deps x -> List [ atom "read_actual_deps"; path x ]
 ;;
 
 let print_rule_sexp ppf (rule : Dune_engine.Reflection.Rule.t) =

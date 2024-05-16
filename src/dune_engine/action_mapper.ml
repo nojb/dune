@@ -49,6 +49,7 @@ module Make (Src : Action_intf.Ast) (Dst : Action_intf.Ast) = struct
         , f_target ~dir target )
     | Pipe (outputs, l) -> Pipe (outputs, List.map l ~f:(fun t -> f t ~dir))
     | Extension ext -> Extension (f_ext ~dir ext)
+    | Read_actual_deps x -> Read_actual_deps (f_path ~dir x)
   ;;
 
   let rec map t ~dir ~f_program ~f_string ~f_path ~f_target ~f_ext =

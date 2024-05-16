@@ -208,7 +208,8 @@ let fold_one_step t ~init:acc ~f =
   | Mkdir _
   | Diff _
   | Merge_files_into _
-  | Extension _ -> acc
+  | Extension _
+  | Read_actual_deps _ -> acc
 ;;
 
 include Action_mapper.Make (Ast) (Ast)
@@ -234,7 +235,7 @@ let chdirs =
 let empty = Progn []
 
 let rec is_dynamic = function
-  | Dynamic_run _ -> true
+  | Dynamic_run _ | Read_actual_deps _ -> true
   | Chdir (_, t)
   | Setenv (_, _, t)
   | Redirect_out (_, _, _, t)
@@ -312,6 +313,7 @@ let is_useful_to memoize =
     | System _ -> true
     | Bash _ -> true
     | Extension (module A) -> A.Spec.is_useful_to ~memoize
+    | Read_actual_deps _ -> false
   in
   fun t ->
     match loop t with

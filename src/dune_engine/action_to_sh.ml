@@ -91,6 +91,7 @@ let simplify act =
       :: acc
     | Pipe (outputs, l) -> Pipe (List.map ~f:block l, outputs) :: acc
     | Extension _ -> Sh "# extensions are not supported" :: acc
+    | Read_actual_deps _ -> acc
   and block act =
     match List.rev (loop act []) with
     | [] -> [ Run ("true", []) ]

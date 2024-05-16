@@ -25,6 +25,7 @@ module Workspace_local : sig
   val store
     :  head_target:Path.Build.t
     -> rule_digest:Digest.t
+    -> actual_deps:(Dep.Set.t * Digest.t) option
     -> dynamic_deps_stages:(Dep.Set.t * Digest.t) list
     -> targets_digest:Digest.t
     -> unit

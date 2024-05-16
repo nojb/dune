@@ -589,7 +589,7 @@ end = struct
                 ~file:remove_target_file
                 ~dir:remove_target_dir)
           in
-          let* produced_targets, dynamic_deps_stages =
+          let* produced_targets, actual_deps, dynamic_deps_stages =
             (* Step III. Try to restore artifacts from the shared cache. *)
             Rule_cache.Shared.lookup ~can_go_in_shared_cache ~rule_digest ~targets
             >>= function
@@ -600,8 +600,10 @@ end = struct
                  The lack of information to fill in [dynamic_deps_stages] here
                  is precisely the reason why we don't store dynamic actions in
                  the shared cache. *)
+              let actual_deps = None in
+              (* FIXME *)
               let dynamic_deps_stages = [] in
-              Fiber.return (produced_targets, dynamic_deps_stages)
+              Fiber.return (produced_targets, actual_deps, dynamic_deps_stages)
             | None ->
               (* Step IV. Execute the build action. *)
               let* exec_result =
@@ -635,13 +637,18 @@ end = struct
                   ~f:(fun (deps, fact_map) ->
                     deps, Dep.Facts.digest fact_map ~env:action.env)
               in
-              Fiber.return (produced_targets, dynamic_deps_stages)
+              Fiber.return
+                ( produced_targets
+                , exec_result.action_exec_result.actual_deps
+                , dynamic_deps_stages )
           in
           (* We do not include target names into [targets_digest] because they
              are already included into the rule digest. *)
           Rule_cache.Workspace_local.store
             ~head_target
             ~rule_digest
+            ~actual_deps:
+              (Option.map ~f:(fun deps -> deps, Dep.Set.digest deps) actual_deps)
             ~dynamic_deps_stages
             ~targets_digest:(Targets.Produced.digest produced_targets);
           Fiber.return produced_targets

@@ -7,13 +7,15 @@ module Workspace_local = struct
     module Entry = struct
       type t =
         { rule_digest : Digest.t
+        ; actual_deps : (Dep.Set.t * Digest.t) option
         ; dynamic_deps_stages : (Dep.Set.t * Digest.t) list
         ; targets_digest : Digest.t
         }
 
-      let to_dyn { rule_digest; dynamic_deps_stages; targets_digest } =
+      let to_dyn { rule_digest; actual_deps; dynamic_deps_stages; targets_digest } =
         Dyn.Record
           [ "rule_digest", Digest.to_dyn rule_digest
+          ; "actual_deps", Dyn.option (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) actual_deps
           ; ( "dynamic_deps_stages"
             , Dyn.list (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) dynamic_deps_stages )
           ; "targets_digest", Digest.to_dyn targets_digest
@@ -31,7 +33,7 @@ module Workspace_local = struct
         type nonrec t = t
 
         let name = "INCREMENTAL-DB"
-        let version = 5
+        let version = 6
         let to_dyn = to_dyn
 
         let test_example () =
@@ -40,6 +42,7 @@ module Workspace_local = struct
             table
             (Path.external_ (Path.External.of_string "/"))
             { Entry.rule_digest = Digest.string "foo"
+            ; actual_deps = None
             ; dynamic_deps_stages = [ Dep.Set.empty, Digest.string "bar" ]
             ; targets_digest = Digest.string "zzz"
             };
@@ -87,10 +90,10 @@ module Workspace_local = struct
     ;;
   end
 
-  let store ~head_target ~rule_digest ~dynamic_deps_stages ~targets_digest =
+  let store ~head_target ~rule_digest ~actual_deps ~dynamic_deps_stages ~targets_digest =
     Database.set
       (Path.build head_target)
-      { rule_digest; dynamic_deps_stages; targets_digest }
+      { rule_digest; actual_deps; dynamic_deps_stages; targets_digest }
   ;;
 
   module Miss_reason = struct
@@ -102,6 +105,7 @@ module Workspace_local = struct
       | Dynamic_deps_changed
       | Always_rerun
       | Error_while_collecting_directory_targets of Targets.Produced.Error.t
+      | Actual_deps_changed
 
     let report ~head_target reason =
       let reason =
@@ -120,6 +124,7 @@ module Workspace_local = struct
           sprintf
             "error while collecting directory targets: %s"
             (Targets.Produced.Error.to_string_hum error)
+        | Actual_deps_changed -> "actual dependencies changed"
       in
       Console.print_user_message
         (User_message.make
@@ -173,22 +178,36 @@ module Workspace_local = struct
     match prev_trace_with_produced_targets with
     | Miss reason -> Fiber.return (Miss reason)
     | Hit (prev_trace, produced_targets) ->
-      (* CR-someday aalekseyev: If there's a change at one of the last stages,
-         we still re-run all the previous stages, which is a bit of a waste. We
-         could remember what stage needs re-running and only re-run that (and
-         later stages). *)
-      let rec loop stages =
-        match stages with
-        | [] -> Fiber.return (Hit produced_targets)
-        | (deps, old_digest) :: rest ->
-          let open Fiber.O in
-          let* deps = Memo.run (build_deps deps) in
+      let open Fiber.O in
+      let* actual_deps_hit =
+        match prev_trace.actual_deps with
+        | None -> Fiber.return None
+        | Some (deps, old_digest) ->
+          let+ deps = Memo.run (build_deps deps) in
           let new_digest = Dep.Facts.digest deps ~env in
           (match Digest.equal old_digest new_digest with
-           | true -> loop rest
-           | false -> Fiber.return (Miss Miss_reason.Dynamic_deps_changed))
+           | true -> None
+           | false -> Some Miss_reason.Actual_deps_changed)
       in
-      loop prev_trace.dynamic_deps_stages
+      (match actual_deps_hit with
+       | Some reason -> Fiber.return (Miss reason)
+       | None ->
+         (* CR-someday aalekseyev: If there's a change at one of the last stages,
+            we still re-run all the previous stages, which is a bit of a waste. We
+            could remember what stage needs re-running and only re-run that (and
+            later stages). *)
+         let rec loop stages =
+           match stages with
+           | [] -> Fiber.return (Hit produced_targets)
+           | (deps, old_digest) :: rest ->
+             let open Fiber.O in
+             let* deps = Memo.run (build_deps deps) in
+             let new_digest = Dep.Facts.digest deps ~env in
+             (match Digest.equal old_digest new_digest with
+              | true -> loop rest
+              | false -> Fiber.return (Miss Miss_reason.Dynamic_deps_changed))
+         in
+         loop prev_trace.dynamic_deps_stages)
   ;;
 
   let lookup ~always_rerun ~rule_digest ~targets ~env ~build_deps
