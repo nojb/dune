@@ -200,8 +200,7 @@ let create
   ; flags
   ; requires_compile
   ; requires_link
-  ; includes =
-      Includes.make ~project ~opaque ~requires:requires_compile ~hidden
+  ; includes = Includes.make ~project ~opaque ~requires:requires_compile ~hidden
   ; preprocessing
   ; opaque
   ; stdlib

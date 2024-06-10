@@ -99,13 +99,7 @@ module L = struct
        |> List.rev)
   ;;
 
-  let remove_stdlib dirs libs =
-    match libs with
-    | [] -> dirs
-    | lib :: _ -> Path.Set.remove dirs (Lib.lib_config lib).stdlib_dir
-  ;;
-
-  let remove_stdlib_map dirs libs remove =
+  let remove_stdlib dirs libs remove =
     match libs with
     | [] -> dirs
     | lib :: _ -> remove dirs (Lib.lib_config lib).stdlib_dir
@@ -165,7 +159,7 @@ module L = struct
                let native_dir = Obj_dir.native_dir obj_dir in
                add acc native_dir t))
       in
-      remove_stdlib_map dirs ts remove
+      remove_stdlib dirs ts remove
   ;;
 
   let include_paths ?project ts mode =
@@ -203,7 +197,7 @@ module L = struct
         let src_dir = Lib_info.src_dir (Lib.info t) in
         Path.Set.add acc src_dir)
     in
-    remove_stdlib dirs ts
+    remove_stdlib dirs ts Path.Set.remove
   ;;
 
   let c_include_flags ts sctx =
