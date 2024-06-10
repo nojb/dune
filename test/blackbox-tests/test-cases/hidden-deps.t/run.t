@@ -1,8 +1,7 @@
 Should include Foo with -H:
-  $ ver=$(ocamlc -H x 2>&1)
+  $ ocamlc -H x --help > /dev/null
   > fooincludes='.foo.objs/byte.foo.objs/byte.foo.objs/native'
-  > case "$ver" in
-  >  "No input files")
+  > if [ $? = 0 ]; then
   >     # here, we have a compiler that supports -H flag
   >     # case for ITD set to false
   >     echo "(lang dune 3.15)\n(implicit_transitive_deps false)\n" > dune-project
@@ -10,7 +9,7 @@ Should include Foo with -H:
   >     # get the foo includes for run.ml and run.mli
   >     includes=`dune exec --verbose ./run.exe 2>&1 | grep "run.ml" | grep -E -o "\-H\s(.foo)\S*" | sed s/\-H//g`
   >     includes="$(echo "${includes}" | tr -d '[:space:]')"
-  >     
+  > 
   >     if [ "$includes" = $fooincludes ]; then
   >       echo "OKAY"
   >     else
@@ -28,8 +27,7 @@ Should include Foo with -H:
   >     else
   >       echo "ERROR"
   >     fi
-  >     ;;
-  >   *)
+  > else
   >     # here, we have a compiler that does not support -H flag
   >     # case for ITD set to false
   >     echo "(lang dune 3.15)\n(implicit_transitive_deps false)" > dune-project
@@ -55,8 +53,7 @@ Should include Foo with -H:
   >     else
   >       echo "ERROR"
   >     fi
-  >     ;;
-  >  esac
+  > fi
   OKAY
   OKAY
 

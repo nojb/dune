@@ -142,9 +142,9 @@ let create
   let open Memo.O in
   let project = Scope.project scope in
   let context = Super_context.context super_context in
+  let sandbox = Sandbox_config.no_special_requirements in
   let* ocaml = Context.ocaml context in
   let _dune_version = Dune_project.dune_version project in
-  let sandbox = Sandbox_config.no_special_requirements in
   let hidden =
     if Version.supports_hidden_includes ocaml.version
     then (
