@@ -3,30 +3,30 @@ open Import
 module Includes = struct
   type t = Command.Args.without_targets Command.Args.t Lib_mode.Cm_kind.Map.t
 
-  let make ~project ~opaque ~requires : _ Lib_mode.Cm_kind.Map.t =
+  let make ~project ~opaque ~requires ~hidden : _ Lib_mode.Cm_kind.Map.t =
     (* TODO : some of the requires can filtered out using [ocamldep] info *)
     let open Resolve.Memo.O in
-    let iflags libs mode = Lib_flags.L.include_flags ~project libs mode in
+    let iflags libs mode hidden = Lib_flags.L.include_flags ~project libs mode ~hidden in
     let make_includes_args ~mode groups =
       Command.Args.memo
         (Resolve.Memo.args
-           (let+ libs = requires in
+           (let+ libs = requires
+            and+ hidden = hidden in
             Command.Args.S
-              [ iflags libs mode
-              ; Hidden_deps (Lib_file_deps.deps (List.map ~f:fst libs) ~groups)
-              ]))
+              [ iflags libs mode hidden; Hidden_deps (Lib_file_deps.deps libs ~groups) ]))
     in
     let cmi_includes = make_includes_args ~mode:(Ocaml Byte) [ Ocaml Cmi ] in
     let cmx_includes =
       Command.Args.memo
         (Resolve.Memo.args
-           (let+ libs = requires in
+           (let+ libs = requires
+            and+ hidden = hidden in
             Command.Args.S
-              [ iflags libs (Ocaml Native)
+              [ iflags libs (Ocaml Native) hidden
               ; Hidden_deps
                   (if opaque
                    then
-                     List.map libs ~f:(fun (lib, _) ->
+                     List.map libs ~f:(fun lib ->
                        ( lib
                        , if Lib.is_local lib
                          then [ Lib_file_deps.Group.Ocaml Cmi ]
@@ -34,7 +34,7 @@ module Includes = struct
                      |> Lib_file_deps.deps_with_exts
                    else
                      Lib_file_deps.deps
-                       (List.map ~f:fst libs)
+                       libs
                        ~groups:[ Lib_file_deps.Group.Ocaml Cmi; Ocaml Cmx ])
               ]))
     in
@@ -75,8 +75,7 @@ type t =
   ; obj_dir : Path.Build.t Obj_dir.t
   ; modules : modules
   ; flags : Ocaml_flags.t
-  ; requires_compile : (Lib.t * bool) list Resolve.Memo.t
-      (*list of libraries: the type here consists of a path and a library name*)
+  ; requires_compile : Lib.t list Resolve.Memo.t
   ; requires_link : Lib.t list Resolve.t Memo.Lazy.t
   ; includes : Includes.t
   ; preprocessing : Pp_spec.t
@@ -142,25 +141,29 @@ let create
   =
   let open Memo.O in
   let project = Scope.project scope in
-  let sandbox = Sandbox_config.no_special_requirements in
   let context = Super_context.context super_context in
   let* ocaml = Context.ocaml context in
   let _dune_version = Dune_project.dune_version project in
-  let requires_compile =
-    let requires_link = Memo.Lazy.force requires_link in
-    if Dune_project.implicit_transitive_deps project
-    then Resolve.Memo.map ~f:(List.map ~f:(fun lib -> lib, true)) requires_link
-    else if Version.supports_hidden_includes ocaml.version
-    then
-      let open Resolve.Memo.O in
-      let* requires_compile = requires_compile in
+  let sandbox = Sandbox_config.no_special_requirements in
+  let hidden =
+    if Version.supports_hidden_includes ocaml.version
+    then (
       let requires_compile =
-        Lib.Tbl.of_list_exn (List.map ~f:(fun lib -> lib, ()) requires_compile)
+        if Dune_project.implicit_transitive_deps project
+        then Memo.Lazy.force requires_link
+        else requires_compile
       in
-      Resolve.Memo.map
-        ~f:(List.map ~f:(fun lib -> lib, Lib.Tbl.mem requires_compile lib))
-        requires_link
-    else Resolve.Memo.map ~f:(List.map ~f:(fun lib -> lib, true)) requires_compile
+      let open Resolve.Memo.O in
+      let+ requires = requires_compile in
+      let requires = Lib.Tbl.of_list_exn (List.map ~f:(fun lib -> lib, ()) requires) in
+      Lib.Tbl.mem requires)
+    else Resolve.Memo.return (fun _ -> true)
+  in
+  let requires_compile =
+    if Dune_project.implicit_transitive_deps project
+       || Version.supports_hidden_includes ocaml.version
+    then Memo.Lazy.force requires_link
+    else requires_compile
   in
   let modes =
     let default =
@@ -197,7 +200,8 @@ let create
   ; flags
   ; requires_compile
   ; requires_link
-  ; includes = Includes.make ~project ~opaque ~requires:requires_compile
+  ; includes =
+      Includes.make ~project ~opaque ~requires:requires_compile ~hidden
   ; preprocessing
   ; opaque
   ; stdlib
@@ -278,18 +282,16 @@ let for_module_generated_at_link_time cctx ~requires ~module_ =
        their implementation must also be compiled with -opaque *)
     Ocaml.Version.supports_opaque_for_mli cctx.ocaml.version
   in
-  let requires_compile =
-    Resolve.Memo.map ~f:(List.map ~f:(fun lib -> lib, true)) requires
-  in
+  let hidden = Resolve.Memo.return (fun _ -> true) in
   let modules = singleton_modules module_ in
   let includes =
-    Includes.make ~project:(Scope.project cctx.scope) ~opaque ~requires:requires_compile
+    Includes.make ~project:(Scope.project cctx.scope) ~opaque ~requires ~hidden
   in
   { cctx with
     opaque
   ; flags = Ocaml_flags.empty
   ; requires_link = Memo.lazy_ (fun () -> requires)
-  ; requires_compile
+  ; requires_compile = requires
   ; includes
   ; modules
   }
@@ -322,7 +324,7 @@ let root_module_entries t =
   let open Action_builder.O in
   let* requires = Resolve.Memo.read t.requires_compile in
   let* l =
-    Action_builder.List.map requires ~f:(fun (lib, _) ->
+    Action_builder.List.map requires ~f:(fun lib ->
       Action_builder.of_memo (entry_module_names t.super_context lib) >>= Resolve.read)
   in
   Action_builder.return (List.concat l)

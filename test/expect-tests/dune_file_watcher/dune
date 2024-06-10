@@ -51,9 +51,6 @@
  (inline_tests
   (deps
    (sandbox always)))
- (libraries
-  dune_config_file
-  dune_file_watcher
-  ppx_expect.common)
+ (libraries dune_config_file dune_file_watcher ppx_expect.common)
  (preprocess
   (pps ppx_expect)))
