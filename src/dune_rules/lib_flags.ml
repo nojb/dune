@@ -110,7 +110,7 @@ module L = struct
     ; melange_emit : bool
     }
 
-  let include_paths_h =
+  let include_paths_gen =
     let add_public_dir ~visible_cmi obj_dir acc mode add lib =
       match visible_cmi with
       | false -> acc
@@ -162,25 +162,21 @@ module L = struct
       remove_stdlib dirs ts remove
   ;;
 
+  let include_flags ?project ?(direct = fun _ -> true) ts mode =
+    to_flags
+      (include_paths_gen
+         ?project
+         ts
+         { lib_mode = mode; melange_emit = false }
+         Path.Map.empty
+         (fun acc p l -> Path.Map.set acc p (direct l))
+         Path.Map.remove)
+  ;;
+
   let include_paths ?project ts mode =
     let add acc p _ = Path.Set.add acc p in
     let remove = Path.Set.remove in
-    include_paths_h ?project ts mode Path.Set.empty add remove
-  ;;
-
-  let include_flags ?project ?hidden ts mode =
-    match hidden with
-    | Some hidden ->
-      to_flags
-        (include_paths_h
-           ?project
-           ts
-           { lib_mode = mode; melange_emit = false }
-           Path.Map.empty
-           (fun acc p l -> Path.Map.set acc p (hidden l))
-           Path.Map.remove)
-    | None ->
-      to_iflags (include_paths ?project ts { lib_mode = mode; melange_emit = false })
+    include_paths_gen ?project ts mode Path.Set.empty add remove
   ;;
 
   let melange_emission_include_flags ?project ts =
