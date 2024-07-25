@@ -1,6 +1,8 @@
 open Import
 open Dune_util.Action
 
+
+
 module Simplified = struct
   type destination =
     | Dev_null
@@ -53,6 +55,7 @@ module type Ast = sig
     | Diff of (path, target) Diff.t
     | Pipe of Outputs.t * t list
     | Extension of ext
+    | Needed_deps of path list
 end
 
 module type Helpers = sig
@@ -86,6 +89,7 @@ module type Helpers = sig
   val remove_tree : target -> t
   val mkdir : target -> t
   val diff : ?optional:bool -> ?mode:Diff.Mode.t -> path -> target -> t
+  val needed_deps : path list -> t
 end
 
 module Ext = struct

@@ -295,10 +295,12 @@ end = struct
     Filename.Set.to_list_map non_target_source_filenames ~f:(fun filename ->
       let src_path = Path.Source.relative dir filename in
       let build_path = Path.Build.append_source ctx_dir src_path in
+      let requires_a_deps = false in
       Rule.make
         ~info:(Source_file_copy src_path)
         ~targets:(Targets.File.create build_path)
-        (copy_source_action ~src_path ~build_path))
+        (copy_source_action ~src_path ~build_path)
+        ~requires_a_deps)
   ;;
 
   let compile_rules ~dir ~source_dirs rules =

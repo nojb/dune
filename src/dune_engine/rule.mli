@@ -59,6 +59,7 @@ type t = private
   ; mode : Mode.t
   ; info : Info.t
   ; loc : Loc.t
+  ; requires_a_deps : bool
   }
 
 include Comparable_intf.S with type key := t
@@ -73,6 +74,7 @@ val make
   :  ?mode:Mode.t
   -> ?info:Info.t
   -> targets:Targets.t
+  -> requires_a_deps:bool
   -> Action.Full.t Action_builder.t
   -> t
 

@@ -44,6 +44,7 @@ module Make (Src : Action_intf.Ast) (Dst : Action_intf.Ast) = struct
       Diff { diff with file1 = f_path ~dir file1; file2 = f_target ~dir file2 }
     | Pipe (outputs, l) -> Pipe (outputs, List.map l ~f:(fun t -> f t ~dir))
     | Extension ext -> Extension (f_ext ~dir ext)
+    | Needed_deps xs -> Needed_deps (List.map xs ~f:(f_path ~dir))
   ;;
 
   let rec map t ~dir ~f_program ~f_string ~f_path ~f_target ~f_ext =

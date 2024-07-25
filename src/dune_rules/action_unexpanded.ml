@@ -140,10 +140,10 @@ end = struct
 
   let run t ~chdir ~targets_dir ~expander =
     let deps = Action_builder.return Path.Set.empty in
-    let acc = { file_targets = Path.Build.Map.empty; deps; deps_if_exist = deps } in
+    let acc = { file_targets = Path.Build.Map.empty; deps; deps_if_exist = deps} in
     let env = { expander; infer = true; dir = chdir } in
     Memo.map (t env acc) ~f:(fun (b, acc) ->
-      let { file_targets; deps; deps_if_exist } = acc in
+      let { file_targets; deps; deps_if_exist} = acc in
       (* A file can be inferred as both a dependency and a target, for
          instance:
 
@@ -569,6 +569,12 @@ let rec expand (t : Dune_lang.Action.t) : Action.t Action_expander.t =
   | Withenv _ | Substitute _ | Patch _ | When _ ->
     (* these can only be provided by the package language which isn't expanded here *)
     assert false
+  | Needed_deps xs -> 
+    let+ xs = A.all (List.map ~f:(function 
+                                | Dep_conf.File x -> E.dep x
+                                | _ -> assert false) xs) in
+
+    O.Needed_deps xs
 ;;
 
 let expand_no_targets t ~loc ~chdir ~deps:deps_written_by_user ~expander ~what =
