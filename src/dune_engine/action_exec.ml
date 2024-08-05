@@ -286,6 +286,7 @@ let exec_run_dynamic_client ~display ~ectx ~eenv prog args =
           deps
           ~loc:ectx.rule_loc
           ~working_dir:eenv.working_dir ); needed_deps = Dep.Set.empty}
+
 ;;
 
 let exec_echo stdout_to str =
@@ -434,7 +435,7 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
     then (
       remove_intermediate_file ();
       Produce.return {done_or_more_deps = Done; needed_deps = Dep.Set.empty})
-    else 
+    else (
       let is_copied_from_source_tree file =
         match Path.extract_build_context_dir_maybe_sandboxed file with
         | None -> false
@@ -494,7 +495,8 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
                   else remove_intermediate_file ());
                Fiber.return ())
       in
-      {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+
+      {done_or_more_deps = Done; needed_deps = Dep.Set.empty})
   | Pipe (outputs, l) -> exec_pipe ~display ~ectx ~eenv ~init:Dep.Set.empty outputs l
   | Extension (module A) ->
     let+ () =
