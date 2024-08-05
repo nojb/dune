@@ -3,13 +3,13 @@ module DAP = Dune_action_plugin.Private.Protocol
 open Action_plugin
 
 let maybe_async =
-  let maybe_async =
-    lazy
+  let maybe_async f =
+    
       (match Config.(get background_actions) with
-       | `Enabled -> Scheduler.async_exn
-       | `Disabled -> fun f -> Fiber.return (f ()))
+       | `Enabled -> Scheduler.async_exn f
+       | `Disabled -> Fiber.return (f ()))
   in
-  fun f -> (Lazy.force maybe_async) f
+  fun f ->  maybe_async f
 ;;
 
 module Duration = struct
@@ -503,12 +503,39 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
     in
     {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
   | Needed_deps needed ->
-    let needed_deps = List.fold_left
+    let ds = Dep.decode in
+    (*the files should first be parsed*)
+    let complete_path = function
+    | Dep.File x -> Dep.file (Path.relative eenv.working_dir (Path.to_string x))
+    | Dep.File_selector x -> 
+                let path = Path.to_string (File_selector.dir x) in
+                let dir = Path.relative eenv.working_dir path in
+                Dep.file_selector (File_selector.edit_dir ~dir x)
+    (*| Dep.Alias x ->
+                let name = Alias.name x in
+                let dir = Path.to_string (Alias.dir x) in
+                let dir = Path.relative eenv.working_dir dir in
+                let alias = Alias.make name dir in
+                Dep.alias alias *)
+    | x -> x
+    in 
+    let parsed_sexp = List.map needed ~f:(Dune_sexp.Parser.load ~mode:Single) in
+
+    let deps = List.map parsed_sexp ~f:(Dune_sexp.Decoder.parse ds Univ_map.empty) in
+    let deps = List.map ~f:complete_path deps in
+
+    Produce.return {done_or_more_deps = Done;
+     needed_deps = Dep.Set.of_list deps}
+
+
+    (*{done_or_more_deps = Done;
+     needed_deps = Dep.Set.of_list_map needed_deps ~f:(fun s -> Dep.file (Path.relative eenv.working_dir s))}*)
+
+     (* let needed_deps = List.fold_left
                               ~init:Dep.Set.empty
                               ~f:(fun acc p -> (Dep.Set.add acc (Dep.file p)))
                               needed
-    in
-    Produce.return ({done_or_more_deps = Done; needed_deps = needed_deps})
+    in *)  
 
 and redirect_out t ~display ~ectx ~eenv ~perm outputs fn =
   redirect t ~display ~ectx ~eenv ~out:(outputs, fn, perm) ()

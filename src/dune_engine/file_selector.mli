@@ -14,6 +14,7 @@ val of_predicate_lang
   -> ?only_generated_files:bool
   -> Predicate_lang.Glob.t
   -> t
+val edit_dir : dir:Path.t -> t -> t
 
 val equal : t -> t -> bool
 val hash : t -> int
