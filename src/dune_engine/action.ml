@@ -199,7 +199,7 @@ let fold_one_step t ~init:acc ~f =
   | Remove_tree _
   | Mkdir _
   | Diff _
-  | Extension _ 
+  | Extension _
   | Needed_deps _ -> acc
 ;;
 
@@ -247,7 +247,7 @@ let rec is_dynamic = function
   | Remove_tree _
   | Diff _
   | Mkdir _
-  | Extension _ 
+  | Extension _
   | Needed_deps _ -> false
 ;;
 
@@ -303,7 +303,7 @@ let is_useful_to memoize =
     | System _ -> true
     | Bash _ -> true
     | Extension (module A) -> A.Spec.is_useful_to ~memoize
-    | Needed_deps _ -> memoize 
+    | Needed_deps _ -> memoize
   in
   fun t ->
     match loop t with

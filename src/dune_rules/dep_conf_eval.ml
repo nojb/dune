@@ -37,7 +37,7 @@ type dep_evaluation_result =
 let to_action_builder = function
   | Simple paths ->
     let* paths = Action_builder.of_memo paths in
-    let+ () = (Action_builder.all_unit (List.map ~f:Action_builder.path paths)) in
+    let+ () = Action_builder.all_unit (List.map ~f:Action_builder.path paths) in
     paths
   | Other x -> x
 ;;
@@ -258,61 +258,62 @@ let rec dep expander : Dep_conf.t -> _ = function
   | Sandbox_config _ -> Other (Action_builder.return [])
   | Order_only s ->
     (*let l = List.fold_left ~init:[] ~f:(fun acc x -> match (dep expander x) with
-                                    | Simple _ as a -> (to_action_builder a) :: acc
-                                    | Other x -> x :: acc) s*)
-    let l =  List.map ~f:(dep expander) s in
-    let builder = Action_builder.goal (Action_builder.List.concat_map l ~f:to_action_builder) in
+      | Simple _ as a -> (to_action_builder a) :: acc
+      | Other x -> x :: acc) s*)
+    let l = List.map ~f:(dep expander) s in
+    let builder =
+      Action_builder.goal (Action_builder.List.concat_map l ~f:to_action_builder)
+    in
     Other builder
 
-
-    and named_paths_builder ~expander l =
-      let builders, bindings =
-        let expander = prepare_expander expander in
-        List.fold_left l ~init:([], Pform.Map.empty) ~f:(fun (builders, bindings) x ->
-          match x with
-          | Bindings.Unnamed x -> to_action_builder (dep expander x) :: builders, bindings
-          | Named (name, x) ->
-            let x = List.map x ~f:(dep expander) in
-            (match
-               Option.List.all
-                 (List.map x ~f:(function
-                   | Simple x -> Some x
-                   | Other _ -> None))
-             with
-             | Some x ->
-               let open Memo.O in
-               let x = Memo.lazy_ (fun () -> Memo.all_concurrently x >>| List.concat) in
-               let bindings =
-                 Pform.Map.set
-                   bindings
-                   (Var (User_var name))
-                   (Expander.Deps.Without (Memo.Lazy.force x >>| Value.L.paths))
-               in
-               let x =
-                 let open Action_builder.O in
-                 let* x = Action_builder.of_memo (Memo.Lazy.force x) in
-                 let+ () = Action_builder.paths x in
-                 x
-               in
-               x :: builders, bindings
-             | None ->
-               let x =
-                 Action_builder.memoize
-                   ~cutoff:(List.equal Path.equal)
-                   ("dep " ^ name)
-                   (Action_builder.List.concat_map x ~f:to_action_builder)
-               in
-               let bindings =
-                 Pform.Map.set
-                   bindings
-                   (Var (User_var name))
-                   (Expander.Deps.With (x >>| Value.L.paths))
-               in
-               x :: builders, bindings))
-      in
-      let builder = List.rev builders |> Action_builder.all >>| List.concat in
-      builder, bindings
-    ;;
+and named_paths_builder ~expander l =
+  let builders, bindings =
+    let expander = prepare_expander expander in
+    List.fold_left l ~init:([], Pform.Map.empty) ~f:(fun (builders, bindings) x ->
+      match x with
+      | Bindings.Unnamed x -> to_action_builder (dep expander x) :: builders, bindings
+      | Named (name, x) ->
+        let x = List.map x ~f:(dep expander) in
+        (match
+           Option.List.all
+             (List.map x ~f:(function
+               | Simple x -> Some x
+               | Other _ -> None))
+         with
+         | Some x ->
+           let open Memo.O in
+           let x = Memo.lazy_ (fun () -> Memo.all_concurrently x >>| List.concat) in
+           let bindings =
+             Pform.Map.set
+               bindings
+               (Var (User_var name))
+               (Expander.Deps.Without (Memo.Lazy.force x >>| Value.L.paths))
+           in
+           let x =
+             let open Action_builder.O in
+             let* x = Action_builder.of_memo (Memo.Lazy.force x) in
+             let+ () = Action_builder.paths x in
+             x
+           in
+           x :: builders, bindings
+         | None ->
+           let x =
+             Action_builder.memoize
+               ~cutoff:(List.equal Path.equal)
+               ("dep " ^ name)
+               (Action_builder.List.concat_map x ~f:to_action_builder)
+           in
+           let bindings =
+             Pform.Map.set
+               bindings
+               (Var (User_var name))
+               (Expander.Deps.With (x >>| Value.L.paths))
+           in
+           x :: builders, bindings))
+  in
+  let builder = List.rev builders |> Action_builder.all >>| List.concat in
+  builder, bindings
+;;
 
 let named ~expander l =
   let builder, bindings = named_paths_builder ~expander l in

@@ -352,11 +352,9 @@ let cstrs_dune_file t =
       >>> let+ script = sw in
           Cram script )
   ; ( "needed_deps"
-    , let* xs = repeat1 sw in
-    (if List.length xs > 1
-     then Syntax.since ~what:"Passing several arguments to 'needed_deps'" Stanza.syntax (3, 4)
-     else return ())
-    >>> return (Needed_deps xs))
+    , Syntax.since Stanza.syntax (2, 7)
+      >>> let* xs = repeat1 sw in
+          return (Needed_deps xs) )
   ]
 ;;
 

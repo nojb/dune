@@ -18,17 +18,16 @@ module Workspace_local = struct
           ; ( "dynamic_deps_stages"
             , Dyn.list (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) dynamic_deps_stages )
           ; "targets_digest", Digest.to_dyn targets_digest
-          ; "needed_deps", match needed_deps with
+          ; ( "needed_deps"
+            , match needed_deps with
               | None -> Unit
-              | Some needed_deps -> (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) needed_deps
+              | Some needed_deps -> (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) needed_deps )
           ]
       ;;
     end
 
-
     (* Keyed by the first target of the rule. *)
     type t = Entry.t Path.Table.t
-  
 
     let file = Path.relative Path.build_dir ".db"
     let to_dyn = Path.Table.to_dyn Entry.to_dyn
@@ -98,7 +97,6 @@ module Workspace_local = struct
     Database.set
       (Path.build head_target)
       { rule_digest; dynamic_deps_stages; targets_digest; needed_deps }
-    
   ;;
 
   module Miss_reason = struct
@@ -189,16 +187,16 @@ module Workspace_local = struct
          later stages). *)
       let rec loop stages needed_deps =
         match stages with
-        | [] -> 
-            (match needed_deps with
-            | None -> Fiber.return (Hit produced_targets)
-            | Some (needed_deps, old_digest) ->
-              let open Fiber.O in
-              let* needed_deps = Memo.run (build_deps needed_deps) in
-              let new_digest = Dep.Facts.digest needed_deps ~env in
-                (match Digest.equal old_digest new_digest with
-                | true -> Fiber.return (Hit produced_targets)
-                | false -> Fiber.return (Miss Miss_reason.Needed_deps_changed)))
+        | [] ->
+          (match needed_deps with
+           | None -> Fiber.return (Hit produced_targets)
+           | Some (needed_deps, old_digest) ->
+             let open Fiber.O in
+             let* needed_deps = Memo.run (build_deps needed_deps) in
+             let new_digest = Dep.Facts.digest needed_deps ~env in
+             (match Digest.equal old_digest new_digest with
+              | true -> Fiber.return (Hit produced_targets)
+              | false -> Fiber.return (Miss Miss_reason.Needed_deps_changed)))
         | (deps, old_digest) :: rest ->
           let open Fiber.O in
           let* deps = Memo.run (build_deps deps) in

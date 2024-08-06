@@ -3,13 +3,13 @@ module DAP = Dune_action_plugin.Private.Protocol
 open Action_plugin
 
 let maybe_async =
-  let maybe_async f =
-    
+  let maybe_async =
+    lazy
       (match Config.(get background_actions) with
-       | `Enabled -> Scheduler.async_exn f
-       | `Disabled -> Fiber.return (f ()))
+       | `Enabled -> Scheduler.async_exn
+       | `Disabled -> fun f -> Fiber.return (f ()))
   in
-  fun f ->  maybe_async f
+  fun f -> (Lazy.force maybe_async) f
 ;;
 
 module Duration = struct
@@ -125,7 +125,7 @@ module Exec_result = struct
   type ok =
     { dynamic_deps_stages : (Dep.Set.t * Dep.Facts.t) list
     ; duration : float option
-    ; needed_deps : (Dep.Set.t * Dep.Facts.t)
+    ; needed_deps : Dep.Set.t * Dep.Facts.t
     }
 
   type t = (ok, Error.t list) Result.t
@@ -138,19 +138,28 @@ module Exec_result = struct
         (List.map errs ~f:(fun e -> Exn_with_backtrace.capture (Error.to_exn e)))
   ;;
 end
-type action_res = 
-  { done_or_more_deps : Action_plugin.done_or_more_deps;
-    
-    needed_deps : Dep.Set.t
-  }
 
-let action_res_union x y =
-  match x, y with
-  | {done_or_more_deps = x; needed_deps = a}, {done_or_more_deps = y; needed_deps = b} -> 
-                                              {done_or_more_deps = Action_plugin.done_or_more_deps_union x y; needed_deps = Dep.Set.union a b}
-      
-;;
+module Action_res = struct
+  type t =
+    { done_or_more_deps : Action_plugin.done_or_more_deps
+    ; needed_deps : Dep.Set.t
+    }
 
+  let union x y =
+    match x, y with
+    | ( { done_or_more_deps = x; needed_deps = a }
+      , { done_or_more_deps = y; needed_deps = b } ) ->
+      { done_or_more_deps = Action_plugin.done_or_more_deps_union x y
+      ; needed_deps = Dep.Set.union a b
+      }
+  ;;
+
+  let return ?needed_deps done_or_more_deps =
+    match needed_deps with
+    | None -> { done_or_more_deps; needed_deps = Dep.Set.empty }
+    | Some needed_deps -> { done_or_more_deps; needed_deps }
+  ;;
+end
 
 type exec_context =
   { targets : Targets.Validated.t option
@@ -278,15 +287,17 @@ let exec_run_dynamic_client ~display ~ectx ~eenv prog args =
            that is incompatible with this version of dune."
           prog_name
       ]
-  | Ok Done -> {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+  | Ok Done -> Action_res.return Done
   | Ok (Need_more_deps deps) ->
-    {done_or_more_deps = Need_more_deps
-      ( deps
-      , Action_plugin.to_dune_dep_set
-          deps
-          ~loc:ectx.rule_loc
-          ~working_dir:eenv.working_dir ); needed_deps = Dep.Set.empty}
-
+    let done_or_more_deps =
+      Need_more_deps
+        ( deps
+        , Action_plugin.to_dune_dep_set
+            deps
+            ~loc:ectx.rule_loc
+            ~working_dir:eenv.working_dir )
+    in
+    Action_res.return done_or_more_deps
 ;;
 
 let exec_echo stdout_to str =
@@ -338,12 +349,12 @@ let diff_eq_files { Action.Diff.optional; mode; file1; file2 } =
 let zero = Predicate_lang.element 0
 let maybe_async f = Produce.of_fiber (maybe_async f)
 
-let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
+let rec exec t ~display ~ectx ~eenv : Action_res.t Produce.t =
   match (t : Action.t) with
   | Run (Error e, _) -> Action.Prog.Not_found.raise e
   | Run (Ok prog, args) ->
     let+ () = exec_run ~display ~ectx ~eenv prog (Array.Immutable.to_list args) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | With_accepted_exit_codes (exit_codes, t) ->
     let eenv =
       let exit_codes =
@@ -363,20 +374,20 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
       maybe_async (fun () ->
         Io.write_file (Path.build fn) (String.concat s ~sep:" ") ~perm)
     in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Redirect_out (outputs, fn, perm, t) ->
     let fn = Path.build fn in
     redirect_out t ~display ~ectx ~eenv outputs ~perm fn
   | Redirect_in (inputs, fn, t) -> redirect_in t ~display ~ectx ~eenv inputs fn
   | Ignore (outputs, t) ->
     redirect_out t ~display ~ectx ~eenv ~perm:Normal outputs Dev_null.path
-  | Progn ts -> exec_list ts ~display ~ectx ~eenv ~init:Dep.Set.empty
+  | Progn ts -> exec_list ts ~display ~ectx ~eenv ~needed_acc:Dep.Set.empty
   | Concurrent ts ->
     Produce.parallel_map ts ~f:(exec ~display ~ectx ~eenv)
-    >>| List.fold_left ~f:action_res_union ~init:{done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    >>| List.fold_left ~f:Action_res.union ~init:(Action_res.return Done)
   | Echo strs ->
     let+ () = exec_echo eenv.stdout_to (String.concat strs ~sep:" ") in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Cat xs ->
     let+ () =
       maybe_async (fun () ->
@@ -384,21 +395,21 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
           Io.with_file_in fn ~f:(fun ic ->
             Io.copy_channels ic (Process.Io.out_channel eenv.stdout_to))))
     in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Copy (src, dst) ->
     let dst = Path.build dst in
     let+ () = maybe_async (fun () -> Io.copy_file ~src ~dst ()) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty} 
+    Action_res.return Done
   | Symlink (src, dst) ->
     let+ () = maybe_async (fun () -> Io.portable_symlink ~src ~dst:(Path.build dst)) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Hardlink (src, dst) ->
     let+ () = maybe_async (fun () -> Io.portable_hardlink ~src ~dst:(Path.build dst)) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | System cmd ->
     let path, arg = Utils.system_shell_exn ~needed_to:"interpret (system ...) actions" in
     let+ () = exec_run ~display ~ectx ~eenv path [ arg; cmd ] in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Bash cmd ->
     let+ () =
       exec_run
@@ -408,22 +419,22 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
         (bash_exn ~loc:ectx.rule_loc ~needed_to:"interpret (bash ...) actions")
         [ "-e"; "-u"; "-o"; "pipefail"; "-c"; cmd ]
     in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Write_file (fn, perm, s) ->
     let perm = Action.File_perm.to_unix_perm perm in
     let+ () = maybe_async (fun () -> Io.write_file (Path.build fn) s ~perm) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Rename (src, dst) ->
     let src = Path.Build.to_string src in
     let dst = Path.Build.to_string dst in
     let+ () = maybe_async (fun () -> Unix.rename src dst) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Remove_tree path ->
     let+ () = maybe_async (fun () -> Path.rm_rf (Path.build path)) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Mkdir path ->
     let+ () = maybe_async (fun () -> Path.mkdir_p (Path.build path)) in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Diff ({ optional; file1; file2; mode } as diff) ->
     let remove_intermediate_file () =
       if optional
@@ -434,7 +445,7 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
     if diff_eq_files diff
     then (
       remove_intermediate_file ();
-      Produce.return {done_or_more_deps = Done; needed_deps = Dep.Set.empty})
+      Produce.return (Action_res.return Done))
     else (
       let is_copied_from_source_tree file =
         match Path.extract_build_context_dir_maybe_sandboxed file with
@@ -495,49 +506,23 @@ let rec exec t ~display ~ectx ~eenv : action_res Produce.t =
                   else remove_intermediate_file ());
                Fiber.return ())
       in
-
-      {done_or_more_deps = Done; needed_deps = Dep.Set.empty})
-  | Pipe (outputs, l) -> exec_pipe ~display ~ectx ~eenv ~init:Dep.Set.empty outputs l
+      Action_res.return Done)
+  | Pipe (outputs, l) ->
+    exec_pipe ~display ~ectx ~eenv ~needed_acc:Dep.Set.empty outputs l
   | Extension (module A) ->
     let+ () =
       Produce.of_fiber
       @@ A.Spec.action A.v ~ectx:(restrict_ctx ectx) ~eenv:(restrict_env eenv)
     in
-    {done_or_more_deps = Done; needed_deps = Dep.Set.empty}
+    Action_res.return Done
   | Needed_deps needed ->
-    let ds = Dep.decode in
+    let ds = Dep.decode eenv.working_dir in
     (*the files should first be parsed*)
-    let complete_path = function
-    | Dep.File x -> Dep.file (Path.relative eenv.working_dir (Path.to_string x))
-    | Dep.File_selector x -> 
-                let path = Path.to_string (File_selector.dir x) in
-                let dir = Path.relative eenv.working_dir path in
-                Dep.file_selector (File_selector.edit_dir ~dir x)
-    (*| Dep.Alias x ->
-                let name = Alias.name x in
-                let dir = Path.to_string (Alias.dir x) in
-                let dir = Path.relative eenv.working_dir dir in
-                let alias = Alias.make name dir in
-                Dep.alias alias *)
-    | x -> x
-    in 
     let parsed_sexp = List.map needed ~f:(Dune_sexp.Parser.load ~mode:Single) in
-
     let deps = List.map parsed_sexp ~f:(Dune_sexp.Decoder.parse ds Univ_map.empty) in
-    let deps = List.map ~f:complete_path deps in
-
-    Produce.return {done_or_more_deps = Done;
-     needed_deps = Dep.Set.of_list deps}
-
-
-    (*{done_or_more_deps = Done;
-     needed_deps = Dep.Set.of_list_map needed_deps ~f:(fun s -> Dep.file (Path.relative eenv.working_dir s))}*)
-
-     (* let needed_deps = List.fold_left
-                              ~init:Dep.Set.empty
-                              ~f:(fun acc p -> (Dep.Set.add acc (Dep.file p)))
-                              needed
-    in *)  
+    let () = print_endline (Path.to_string eenv.working_dir) in
+    let needed_deps = Dep.Set.of_list deps in
+    Produce.return (Action_res.return ~needed_deps Done)
 
 and redirect_out t ~display ~ectx ~eenv ~perm outputs fn =
   redirect t ~display ~ectx ~eenv ~out:(outputs, fn, perm) ()
@@ -575,12 +560,14 @@ and redirect t ~display ~ectx ~eenv ?in_ ?out () =
   release_out ();
   result
 
-and exec_list ts ~display ~ectx ~eenv ~init : action_res Produce.t =
+and exec_list ts ~display ~ectx ~eenv ~needed_acc : Action_res.t Produce.t =
   match ts with
-  | [] -> Produce.return {done_or_more_deps = Done; needed_deps = init}
-  | [ t ] -> let* action_res = exec t ~display ~ectx ~eenv in
-              (match action_res with
-              |{done_or_more_deps = d; needed_deps = needed} -> Produce.return {done_or_more_deps = d; needed_deps = (Dep.Set.union init needed)})
+  | [] -> Produce.return (Action_res.return Done ~needed_deps:needed_acc)
+  | [ t ] ->
+    let* action_res = exec t ~display ~ectx ~eenv in
+    (match action_res with
+     | { done_or_more_deps = d; needed_deps = needed } ->
+       Produce.return (Action_res.return d ~needed_deps:(Dep.Set.union needed_acc needed)))
   | t :: rest ->
     let* action_res =
       let stdout_to = Process.Io.multi_use eenv.stdout_to in
@@ -589,14 +576,17 @@ and exec_list ts ~display ~ectx ~eenv ~init : action_res Produce.t =
       exec t ~display ~ectx ~eenv:{ eenv with stdout_to; stderr_to; stdin_from }
     in
     (match action_res with
-     | {done_or_more_deps = Need_more_deps _ as need; needed_deps = needed} -> Produce.return {done_or_more_deps = need; needed_deps = (Dep.Set.union init needed)}
-     | {done_or_more_deps = Done; needed_deps = needed} -> exec_list rest ~display ~ectx ~eenv ~init:((Dep.Set.union init needed)))
+     | { done_or_more_deps = Need_more_deps _ as need; needed_deps = needed } ->
+       Produce.return
+         (Action_res.return need ~needed_deps:(Dep.Set.union needed_acc needed))
+     | { done_or_more_deps = Done; needed_deps = needed } ->
+       exec_list rest ~display ~ectx ~eenv ~needed_acc:(Dep.Set.union needed_acc needed))
 
-and exec_pipe outputs ts ~display ~ectx ~eenv ~init : action_res Produce.t =
+and exec_pipe outputs ts ~display ~ectx ~eenv ~needed_acc : Action_res.t Produce.t =
   let tmp_file () =
     Dtemp.file ~prefix:"dune-pipe-action-" ~suffix:("." ^ Action.Outputs.to_string outputs)
   in
-  let rec loop ~in_ ts init =
+  let rec loop ~in_ ts needed_acc =
     match ts with
     | [] -> assert false
     | [ last_t ] ->
@@ -616,8 +606,11 @@ and exec_pipe outputs ts ~display ~ectx ~eenv ~init : action_res Produce.t =
       in
       Dtemp.destroy File in_;
       (match done_or_deps with
-       | {done_or_more_deps = Need_more_deps _ as need; needed_deps = needed} -> Produce.return {done_or_more_deps = need; needed_deps = (Dep.Set.union init needed)}
-       | {done_or_more_deps = Done; needed_deps = needed} -> loop ~in_:out ts ( Dep.Set.union init needed ))
+       | { done_or_more_deps = Need_more_deps _ as need; needed_deps = needed } ->
+         Produce.return
+           (Action_res.return need ~needed_deps:(Dep.Set.union needed_acc needed))
+       | { done_or_more_deps = Done; needed_deps = needed } ->
+         loop ~in_:out ts (Dep.Set.union needed_acc needed))
   in
   match ts with
   | [] -> assert false
@@ -631,18 +624,23 @@ and exec_pipe outputs ts ~display ~ectx ~eenv ~init : action_res Produce.t =
     in
     let* done_or_deps = redirect_out t1 ~display ~ectx ~eenv ~perm:Normal outputs out in
     (match done_or_deps with
-    | {done_or_more_deps = Need_more_deps _ as need; needed_deps = needed} -> Produce.return {done_or_more_deps = need; needed_deps = (Dep.Set.union init needed)}
-    | {done_or_more_deps = Done; needed_deps = needed} -> loop ~in_:out ts ((Dep.Set.union init needed)))
+     | { done_or_more_deps = Need_more_deps _ as need; needed_deps = needed } ->
+       Produce.return
+         (Action_res.return need ~needed_deps:(Dep.Set.union needed_acc needed))
+     | { done_or_more_deps = Done; needed_deps = needed } ->
+       loop ~in_:out ts (Dep.Set.union needed_acc needed))
 ;;
 
 let exec_until_all_deps_ready ~display ~ectx ~eenv t =
   let rec loop ~eenv stages =
     let* result = exec ~display ~ectx ~eenv t in
     match result with
-    | {done_or_more_deps = Done; needed_deps = deps} ->
-          let* fact_map = Produce.of_fiber @@ ectx.build_deps deps in
-          Produce.return (stages, (deps, fact_map))
-    | {done_or_more_deps = Need_more_deps (relative_deps, deps_to_build); needed_deps = _ } -> 
+    | { done_or_more_deps = Done; needed_deps = deps } ->
+      let* fact_map = Produce.of_fiber @@ ectx.build_deps deps in
+      Produce.return (stages, (deps, fact_map))
+    | { done_or_more_deps = Need_more_deps (relative_deps, deps_to_build)
+      ; needed_deps = _
+      } ->
       let* fact_map = Produce.of_fiber @@ ectx.build_deps deps_to_build in
       let stages = (deps_to_build, fact_map) :: stages in
       let eenv =
@@ -655,9 +653,10 @@ let exec_until_all_deps_ready ~display ~ectx ~eenv t =
   in
   let open Fiber.O in
   let+ (stages, needed_deps), state = Produce.run Produce.State.empty (loop ~eenv []) in
-  
-  { 
-    Exec_result.dynamic_deps_stages = List.rev stages; duration = state.duration; needed_deps = needed_deps }
+  { Exec_result.dynamic_deps_stages = List.rev stages
+  ; duration = state.duration
+  ; needed_deps
+  }
 ;;
 
 type input =

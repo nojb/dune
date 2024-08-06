@@ -427,8 +427,12 @@ end = struct
             | Some runner -> Action_runner.exec_action runner input
           in
           let* action_exec_result = Action_exec.Exec_result.ok_exn action_exec_result in
-          let () = match action_exec_result with 
-          | {dynamic_deps_stages = _; duration = _; needed_deps = dep} -> if (Dep.Set.is_empty (fst dep)) then print_endline "empty actual deps" else print_endline "there is actual deps!"
+          let () =
+            match action_exec_result with
+            | { dynamic_deps_stages = _; duration = _; needed_deps = dep } ->
+              if Dep.Set.is_empty (fst dep)
+              then print_endline "empty actual deps"
+              else print_endline "there is actual deps!"
           in
           let* () =
             match sandbox with
@@ -460,7 +464,7 @@ end = struct
   ;;
 
   let execute_rule_impl ~rule_kind rule =
-    let { Rule.id = _; targets; mode; action; info = _; loc; requires_a_deps = _ } = rule in
+    let { Rule.id = _; targets; mode; action; info = _; loc } = rule in
     (* We run [State.start_rule_exn ()] entirely for its side effect, so one
        might be tempted to use [Memo.of_non_reproducible_fiber] here but that is
        wrong, because that would force us to rerun [execute_rule_impl] on every
@@ -638,12 +642,10 @@ end = struct
                   ~f:(fun (deps, fact_map) ->
                     deps, Dep.Facts.digest fact_map ~env:action.env)
               in
-              let needed_deps = 
+              let needed_deps =
                 match exec_result.action_exec_result.needed_deps with
-                | (deps, facts) -> 
-                  Some (deps, Dep.Facts.digest facts ~env:action.env)
+                | deps, facts -> Some (deps, Dep.Facts.digest facts ~env:action.env)
               in
-
               Fiber.return (produced_targets, dynamic_deps_stages, needed_deps)
           in
           (* We do not include target names into [targets_digest] because they
@@ -711,7 +713,6 @@ end = struct
         ~targets:(Targets.File.create target)
         ~mode:Standard
         (Action_builder.record act.action deps ~f:build_dep)
-        ~requires_a_deps:true
     in
     let+ { facts = _; targets = _ } =
       execute_rule_impl

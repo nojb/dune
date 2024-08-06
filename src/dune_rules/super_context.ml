@@ -165,12 +165,12 @@ let make_rule t ?mode ?loc ~dir { Action_builder.With_targets.build; targets } =
 ;;
 
 let add_rule t ?mode ?loc ~dir build =
-  let rule = make_rule t ?mode ?loc ~dir build ~requires_a_deps:false in
+  let rule = make_rule t ?mode ?loc ~dir build in
   Rules.Produce.rule rule
 ;;
 
 let add_rule_get_targets t ?mode ?loc ~dir build =
-  let rule = make_rule t ?mode ?loc ~dir build ~requires_a_deps:false in
+  let rule = make_rule t ?mode ?loc ~dir build in
   let+ () = Rules.Produce.rule rule in
   rule.targets
 ;;

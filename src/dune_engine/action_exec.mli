@@ -19,7 +19,7 @@ module Exec_result : sig
            facts map. We don't do it because conversion isn't free *)
         (Dep.Set.t * Dep.Facts.t) list
     ; duration : float option
-    ; needed_deps : (Dep.Set.t * Dep.Facts.t)
+    ; needed_deps : Dep.Set.t * Dep.Facts.t
     }
 
   type t = (ok, Error.t list) Result.t

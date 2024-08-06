@@ -140,10 +140,10 @@ end = struct
 
   let run t ~chdir ~targets_dir ~expander =
     let deps = Action_builder.return Path.Set.empty in
-    let acc = { file_targets = Path.Build.Map.empty; deps; deps_if_exist = deps} in
+    let acc = { file_targets = Path.Build.Map.empty; deps; deps_if_exist = deps } in
     let env = { expander; infer = true; dir = chdir } in
     Memo.map (t env acc) ~f:(fun (b, acc) ->
-      let { file_targets; deps; deps_if_exist} = acc in
+      let { file_targets; deps; deps_if_exist } = acc in
       (* A file can be inferred as both a dependency and a target, for
          instance:
 

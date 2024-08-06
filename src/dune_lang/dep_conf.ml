@@ -105,7 +105,7 @@ let decode files =
         , let+ () = Syntax.since Stanza.syntax (3, 1)
           and+ filename = filename in
           Include filename )
-      ; ( "order_only", Decoder.repeat decode >>| fun x -> Order_only x )
+      ; ("order_only", Decoder.repeat decode >>| fun x -> Order_only x)
       ]
   in
   let decode = fix decode in
@@ -134,7 +134,7 @@ let rec encode = function
   | Env_var t -> List [ Dune_sexp.atom "env_var"; String_with_vars.encode t ]
   | Sandbox_config t -> Sandbox_config.encode t
   | Include t -> List [ Dune_sexp.atom "include"; Dune_sexp.atom t ]
-  | Order_only t -> List ( Dune_sexp.atom "order_only" :: List.map ~f:encode t )
+  | Order_only t -> List (Dune_sexp.atom "order_only" :: List.map ~f:encode t)
 ;;
 
 let to_dyn t = Dune_sexp.to_dyn (encode t)

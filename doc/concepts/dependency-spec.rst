@@ -46,9 +46,9 @@ Dependencies in ``dune`` files can be specified using one of the following:
 - ``(include <file>)`` read the s-expression in ``<file>`` and interpret it as
   additional dependencies. The s-expression is expected to be a list of the
   same constructs enumerated here.
-- ``(order_only <dep_spec>)`` read the s-expression in ``<dep_spec>`` and interpret it as 
-a dependency specification (i.e. any type mentioned in this list), and declares this dependency as order_only,
-meaning that if a change occurs to it, the rule will not be run again.
+- ``(order_only <deps>)`` declares ``<deps>`` as "order only" dependencies. This means that these
+dependencies will be guaranteed to be up-to-date before building the target, but changes in them will
+not cause the target to be rebuilt.
 
 In all these cases, the argument supports :doc:`variables`.
 

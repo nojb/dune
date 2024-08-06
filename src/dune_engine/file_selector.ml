@@ -23,13 +23,11 @@ let compare { dir; predicate; only_generated_files } t =
   Bool.compare only_generated_files t.only_generated_files
 ;;
 
-
-
 let of_predicate_lang ~dir ?(only_generated_files = false) predicate =
   { dir; predicate; only_generated_files }
 ;;
 
-let edit_dir ~dir t = 
+let edit_dir ~dir t =
   let predicate = t.predicate in
   let only_generated_files = t.only_generated_files in
   of_predicate_lang ~dir ~only_generated_files predicate
