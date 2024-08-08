@@ -155,9 +155,8 @@ module Action_res = struct
   ;;
 
   let return ?needed_deps done_or_more_deps =
-    match needed_deps with
-    | None -> { done_or_more_deps; needed_deps = Dep.Set.empty }
-    | Some needed_deps -> { done_or_more_deps; needed_deps }
+    let needed_deps = Option.value ~default:Dep.Set.empty needed_deps in
+    { done_or_more_deps; needed_deps }
   ;;
 end
 
@@ -516,12 +515,11 @@ let rec exec t ~display ~ectx ~eenv : Action_res.t Produce.t =
     in
     Action_res.return Done
   | Needed_deps needed ->
-    let ds = Dep.decode eenv.working_dir in
-    (*the files should first be parsed*)
+    let ds = Dune_sexp.Decoder.repeat1 (Dep.decode eenv.working_dir) in
     let parsed_sexp = List.map needed ~f:(Dune_sexp.Parser.load ~mode:Single) in
     let deps = List.map parsed_sexp ~f:(Dune_sexp.Decoder.parse ds Univ_map.empty) in
     let () = print_endline (Path.to_string eenv.working_dir) in
-    let needed_deps = Dep.Set.of_list deps in
+    let needed_deps = Dep.Set.of_list (List.concat deps) in
     Produce.return (Action_res.return ~needed_deps Done)
 
 and redirect_out t ~display ~ectx ~eenv ~perm outputs fn =

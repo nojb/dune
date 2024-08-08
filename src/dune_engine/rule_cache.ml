@@ -9,7 +9,7 @@ module Workspace_local = struct
         { rule_digest : Digest.t
         ; dynamic_deps_stages : (Dep.Set.t * Digest.t) list
         ; targets_digest : Digest.t
-        ; needed_deps : (Dep.Set.t * Digest.t) option
+        ; needed_deps : (Dep.Set.t * Digest.t)
         }
 
       let to_dyn { rule_digest; dynamic_deps_stages; targets_digest; needed_deps } =
@@ -19,9 +19,7 @@ module Workspace_local = struct
             , Dyn.list (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) dynamic_deps_stages )
           ; "targets_digest", Digest.to_dyn targets_digest
           ; ( "needed_deps"
-            , match needed_deps with
-              | None -> Unit
-              | Some needed_deps -> (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) needed_deps )
+            , (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) needed_deps )
           ]
       ;;
     end
@@ -47,7 +45,7 @@ module Workspace_local = struct
             { Entry.rule_digest = Digest.string "foo"
             ; dynamic_deps_stages = [ Dep.Set.empty, Digest.string "bar" ]
             ; targets_digest = Digest.string "zzz"
-            ; needed_deps = Some (Dep.Set.empty, Digest.string "haha")
+            ; needed_deps = (Dep.Set.empty, Digest.string "haha")
             };
           table
         ;;
@@ -188,12 +186,13 @@ module Workspace_local = struct
       let rec loop stages needed_deps =
         match stages with
         | [] ->
-          (match needed_deps with
-           | None -> Fiber.return (Hit produced_targets)
-           | Some (needed_deps, old_digest) ->
+          (if fst (needed_deps) = Dep.Set.empty then
+            Fiber.return (Hit produced_targets)
+          else
              let open Fiber.O in
-             let* needed_deps = Memo.run (build_deps needed_deps) in
-             let new_digest = Dep.Facts.digest needed_deps ~env in
+             let deps, old_digest = needed_deps in
+             let* deps = Memo.run (build_deps deps) in
+             let new_digest = Dep.Facts.digest deps ~env in
              (match Digest.equal old_digest new_digest with
               | true -> Fiber.return (Hit produced_targets)
               | false -> Fiber.return (Miss Miss_reason.Needed_deps_changed)))

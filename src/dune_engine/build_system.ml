@@ -608,7 +608,7 @@ end = struct
                  is precisely the reason why we don't store dynamic actions in
                  the shared cache. *)
               let dynamic_deps_stages = [] in
-              Fiber.return (produced_targets, dynamic_deps_stages, None)
+              Fiber.return (produced_targets, dynamic_deps_stages, (Dep.Set.empty, Dep.Facts.digest (Dep.Facts.empty) ~env:action.env ))
             | None ->
               (* Step IV. Execute the build action. *)
               let* exec_result =
@@ -643,8 +643,8 @@ end = struct
                     deps, Dep.Facts.digest fact_map ~env:action.env)
               in
               let needed_deps =
-                match exec_result.action_exec_result.needed_deps with
-                | deps, facts -> Some (deps, Dep.Facts.digest facts ~env:action.env)
+                 let deps, facts = exec_result.action_exec_result.needed_deps in
+                 (deps, Dep.Facts.digest facts ~env:action.env)
               in
               Fiber.return (produced_targets, dynamic_deps_stages, needed_deps)
           in

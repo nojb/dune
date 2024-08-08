@@ -38,13 +38,14 @@ module T = struct
         , s
           >>| fun name ->
           let name = Alias.Name.of_string name in
-          let dir = Path.Build.of_string "test" in
+          (*let dir = Path.Build.of_string (Path.to_string w_dir) in*)
+          let dir = Path.Build.of_string "_build/.actions/default" (*still under test*) in
           let alias = Alias.make name ~dir in
           Alias alias )
       ; ( "file_selector"
         , Predicate_lang.Glob.decode
           >>| fun glob ->
-          let dir = Path.of_string "test" in
+          let dir = w_dir in
           let file_selector = File_selector.of_predicate_lang ~dir glob in
           File_selector file_selector )
       ; "universe", return Universe

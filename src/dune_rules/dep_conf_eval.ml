@@ -257,9 +257,6 @@ let rec dep expander : Dep_conf.t -> _ = function
        [])
   | Sandbox_config _ -> Other (Action_builder.return [])
   | Order_only s ->
-    (*let l = List.fold_left ~init:[] ~f:(fun acc x -> match (dep expander x) with
-      | Simple _ as a -> (to_action_builder a) :: acc
-      | Other x -> x :: acc) s*)
     let l = List.map ~f:(dep expander) s in
     let builder =
       Action_builder.goal (Action_builder.List.concat_map l ~f:to_action_builder)
