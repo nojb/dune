@@ -9,14 +9,17 @@ module Workspace_local = struct
         { rule_digest : Digest.t
         ; dynamic_deps_stages : (Dep.Set.t * Digest.t) list
         ; targets_digest : Digest.t
+        ; needed_deps : (Dep.Set.t * Digest.t)
         }
 
-      let to_dyn { rule_digest; dynamic_deps_stages; targets_digest } =
+      let to_dyn { rule_digest; dynamic_deps_stages; targets_digest; needed_deps } =
         Dyn.Record
           [ "rule_digest", Digest.to_dyn rule_digest
           ; ( "dynamic_deps_stages"
             , Dyn.list (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) dynamic_deps_stages )
           ; "targets_digest", Digest.to_dyn targets_digest
+          ; ( "needed_deps"
+            , (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) needed_deps )
           ]
       ;;
     end
@@ -42,6 +45,7 @@ module Workspace_local = struct
             { Entry.rule_digest = Digest.string "foo"
             ; dynamic_deps_stages = [ Dep.Set.empty, Digest.string "bar" ]
             ; targets_digest = Digest.string "zzz"
+            ; needed_deps = (Dep.Set.empty, Digest.string "haha")
             };
           table
         ;;
@@ -87,10 +91,10 @@ module Workspace_local = struct
     ;;
   end
 
-  let store ~head_target ~rule_digest ~dynamic_deps_stages ~targets_digest =
+  let store ~head_target ~rule_digest ~dynamic_deps_stages ~targets_digest ~needed_deps =
     Database.set
       (Path.build head_target)
-      { rule_digest; dynamic_deps_stages; targets_digest }
+      { rule_digest; dynamic_deps_stages; targets_digest; needed_deps }
   ;;
 
   module Miss_reason = struct
@@ -101,6 +105,7 @@ module Workspace_local = struct
       | Targets_missing
       | Dynamic_deps_changed
       | Always_rerun
+      | Needed_deps_changed
       | Error_while_collecting_directory_targets of Targets.Produced.Error.t
 
     let report ~head_target reason =
@@ -116,6 +121,7 @@ module Workspace_local = struct
         | Targets_changed -> "target changed in build dir"
         | Always_rerun -> "not trying to use the cache"
         | Dynamic_deps_changed -> "dynamic dependencies changed"
+        | Needed_deps_changed -> "needed dependencies changed"
         | Error_while_collecting_directory_targets error ->
           sprintf
             "error while collecting directory targets: %s"
@@ -177,18 +183,28 @@ module Workspace_local = struct
          we still re-run all the previous stages, which is a bit of a waste. We
          could remember what stage needs re-running and only re-run that (and
          later stages). *)
-      let rec loop stages =
+      let rec loop stages needed_deps =
         match stages with
-        | [] -> Fiber.return (Hit produced_targets)
+        | [] ->
+          (if fst (needed_deps) = Dep.Set.empty then
+            Fiber.return (Hit produced_targets)
+          else
+             let open Fiber.O in
+             let deps, old_digest = needed_deps in
+             let* deps = Memo.run (build_deps deps) in
+             let new_digest = Dep.Facts.digest deps ~env in
+             (match Digest.equal old_digest new_digest with
+              | true -> Fiber.return (Hit produced_targets)
+              | false -> Fiber.return (Miss Miss_reason.Needed_deps_changed)))
         | (deps, old_digest) :: rest ->
           let open Fiber.O in
           let* deps = Memo.run (build_deps deps) in
           let new_digest = Dep.Facts.digest deps ~env in
           (match Digest.equal old_digest new_digest with
-           | true -> loop rest
+           | true -> loop rest needed_deps
            | false -> Fiber.return (Miss Miss_reason.Dynamic_deps_changed))
       in
-      loop prev_trace.dynamic_deps_stages
+      loop prev_trace.dynamic_deps_stages prev_trace.needed_deps
   ;;
 
   let lookup ~always_rerun ~rule_digest ~targets ~env ~build_deps

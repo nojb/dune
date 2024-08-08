@@ -3,6 +3,7 @@ open Import
 module Name : sig
   include module type of Dune_util.Alias_name with type t = Dune_util.Alias_name.t
 
+  val of_string : string -> t
   val default : t
   val parse_local_path : Loc.t * Path.Local.t -> Path.Local.t * t
 

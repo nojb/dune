@@ -27,6 +27,7 @@ let of_predicate_lang ~dir ?(only_generated_files = false) predicate =
   { dir; predicate; only_generated_files }
 ;;
 
+
 let of_glob ~dir glob = of_predicate_lang ~dir (Predicate_lang.Glob.of_glob glob)
 
 let to_dyn { dir; predicate; only_generated_files } =
