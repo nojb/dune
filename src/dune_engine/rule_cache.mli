@@ -18,7 +18,8 @@ module Workspace_local : sig
     -> rule_digest:Digest.t
     -> targets:Targets.Validated.t
     -> env:Env.t
-    -> build_deps:(Dep.Set.t -> Dep.Facts.t Memo.t)
+    -> build_deps:
+         (build_mode:Action_intf.Exec.build_mode -> Dep.Set.t -> Dep.Facts.t Memo.t)
     -> Digest.t Targets.Produced.t option Fiber.t
 
   (** Add a new record to the rule database. *)

@@ -97,6 +97,7 @@ module Exec_result = struct
       | Unix.Unix_error (err, call, args) -> Unix (err, call, args)
       | Memo.Non_reproducible Scheduler.Run.Build_cancelled ->
         Nonreproducible_build_cancelled
+      | Memo.Error.E e -> reraise (Memo.Error.get e)
       | Memo.Cycle_error.E _ as e ->
         (* [Memo.Cycle_error.t] is hard to serialize and can only be raised during action
            execution with the dynamic dependencies plugin, which is not production-ready yet.
@@ -139,48 +140,6 @@ module Exec_result = struct
   ;;
 end
 
-<<<<<<< HEAD
-=======
-module Action_res = struct
-  type t =
-    { done_or_more_deps : Action_plugin.done_or_more_deps
-    ; needed_deps : Dep.Set.t
-    }
-
-  let union x y =
-    match x, y with
-    | ( { done_or_more_deps = x; needed_deps = a }
-      , { done_or_more_deps = y; needed_deps = b } ) ->
-      { done_or_more_deps = Action_plugin.done_or_more_deps_union x y
-      ; needed_deps = Dep.Set.union a b
-      }
-  ;;
-
-  let return ?needed_deps done_or_more_deps =
-    let needed_deps = Option.value ~default:Dep.Set.empty needed_deps in
-    { done_or_more_deps; needed_deps }
-  ;;
-end
-
-type exec_context =
-  { targets : Targets.Validated.t option
-  ; context : Build_context.t option
-  ; metadata : Process.metadata
-  ; rule_loc : Loc.t
-  ; build_deps : Dep.Set.t -> Dep.Facts.t Fiber.t
-  }
-
-type exec_environment =
-  { working_dir : Path.t
-  ; env : Env.t
-  ; stdout_to : Process.Io.output Process.Io.t
-  ; stderr_to : Process.Io.output Process.Io.t
-  ; stdin_from : Process.Io.input Process.Io.t
-  ; prepared_dependencies : DAP.Dependency.Set.t
-  ; exit_codes : int Predicate.t
-  }
-
->>>>>>> 3b285a94d (Add Order_only dep specification + and action needed_deps)
 open Produce.O
 
 let exec_run ~display ~(ectx : context) ~(eenv : env) prog args : _ Produce.t =
@@ -203,108 +162,6 @@ let exec_run ~display ~(ectx : context) ~(eenv : env) prog args : _ Produce.t =
   | Ok times -> Produce.incr_duration times.elapsed_time
 ;;
 
-<<<<<<< HEAD
-=======
-let exec_run_dynamic_client ~display ~ectx ~eenv prog args =
-  let run_arguments_fn = Temp.create File ~prefix:"dune" ~suffix:"run" in
-  let response_fn = Temp.create File ~prefix:"dune" ~suffix:"response" in
-  let run_arguments =
-    let targets =
-      match ectx.targets with
-      | None -> String.Set.empty
-      | Some targets ->
-        if not (Filename.Set.is_empty targets.dirs)
-        then
-          User_error.raise
-            ~loc:ectx.rule_loc
-            [ Pp.text "Directory targets are not compatible with dynamic actions" ];
-        Filename.Set.to_list_map targets.files ~f:(fun target ->
-          Path.Build.relative targets.root target
-          |> Path.build
-          |> Path.reach ~from:eenv.working_dir)
-        |> String.Set.of_list
-    in
-    { DAP.Run_arguments.prepared_dependencies = eenv.prepared_dependencies; targets }
-  in
-  DAP.Run_arguments.to_sexp run_arguments
-  |> Csexp.to_string
-  |> Io.write_file run_arguments_fn;
-  let env =
-    let value =
-      DAP.Greeting.(
-        to_sexp
-          { run_arguments_fn = Path.to_absolute_filename run_arguments_fn
-          ; response_fn = Path.to_absolute_filename response_fn
-          })
-      |> Csexp.to_string
-    in
-    Env.add eenv.env ~var:DAP.run_by_dune_env_variable ~value
-  in
-  let+ () =
-    Produce.of_fiber
-    @@ Process.run
-         ~display
-         Strict
-         ~dir:eenv.working_dir
-         ~env
-         ~stderr_to:eenv.stderr_to
-         ~stdin_from:eenv.stdin_from
-         ~metadata:ectx.metadata
-         prog
-         args
-  in
-  let response_raw = Io.read_file response_fn in
-  Temp.destroy File run_arguments_fn;
-  Temp.destroy File response_fn;
-  let response =
-    match Csexp.parse_string response_raw with
-    | Ok s -> DAP.Response.of_sexp s
-    | Error _ -> Error DAP.Error.Parse_error
-  in
-  let prog_name = Path.reach ~from:eenv.working_dir prog in
-  match response with
-  | Error _ when String.is_empty response_raw ->
-    User_error.raise
-      ~loc:ectx.rule_loc
-      [ Pp.textf
-          "Executable '%s' declared as using dune-action-plugin (declared with \
-           'dynamic-run' tag) failed to respond to dune."
-          prog_name
-      ; Pp.nop
-      ; Pp.text
-          "If you don't use dynamic dependency discovery in your executable you may \
-           consider changing 'dynamic-run' to 'run' in your rule definition."
-      ]
-  | Error Parse_error ->
-    User_error.raise
-      ~loc:ectx.rule_loc
-      [ Pp.textf
-          "Executable '%s' declared as using dune-action-plugin (declared with \
-           'dynamic-run' tag) responded with invalid message."
-          prog_name
-      ]
-  | Error (Version_mismatch _) ->
-    User_error.raise
-      ~loc:ectx.rule_loc
-      [ Pp.textf
-          "Executable '%s' is linked against a version of dune-action-plugin library \
-           that is incompatible with this version of dune."
-          prog_name
-      ]
-  | Ok Done -> Action_res.return Done
-  | Ok (Need_more_deps deps) ->
-    let done_or_more_deps =
-      Need_more_deps
-        ( deps
-        , Action_plugin.to_dune_dep_set
-            deps
-            ~loc:ectx.rule_loc
-            ~working_dir:eenv.working_dir )
-    in
-    Action_res.return done_or_more_deps
-;;
-
->>>>>>> 3b285a94d (Add Order_only dep specification + and action needed_deps)
 let exec_echo stdout_to str =
   Produce.return @@ output_string (Process.Io.out_channel stdout_to) str
 ;;
@@ -380,15 +237,7 @@ let rec exec t ~display ~ectx ~eenv : Action_res.t Produce.t =
     Action_res.return Done
   | Hardlink (src, dst) ->
     let+ () = maybe_async (fun () -> Io.portable_hardlink ~src ~dst:(Path.build dst)) in
-<<<<<<< HEAD
-    Done
-=======
     Action_res.return Done
-  | System cmd ->
-    let path, arg = Utils.system_shell_exn ~needed_to:"interpret (system ...) actions" in
-    let+ () = exec_run ~display ~ectx ~eenv path [ arg; cmd ] in
-    Action_res.return Done
->>>>>>> 3b285a94d (Add Order_only dep specification + and action needed_deps)
   | Bash cmd ->
     let+ () =
       exec_run
@@ -413,93 +262,10 @@ let rec exec t ~display ~ectx ~eenv : Action_res.t Produce.t =
     Action_res.return Done
   | Mkdir path ->
     let+ () = maybe_async (fun () -> Path.mkdir_p (Path.build path)) in
-<<<<<<< HEAD
-    Done
+    Action_res.return Done
   | Pipe (outputs, l) -> exec_pipe ~display ~ectx ~eenv outputs l
   | Extension (module A) ->
     let+ () = Produce.of_fiber @@ A.Spec.action A.v ~ectx ~eenv in
-    Done
-=======
-    Action_res.return Done
-  | Diff ({ optional; file1; file2; mode } as diff) ->
-    let remove_intermediate_file () =
-      if optional
-      then (
-        try Path.unlink_exn (Path.build file2) with
-        | Unix.Unix_error (ENOENT, _, _) -> ())
-    in
-    if diff_eq_files diff
-    then (
-      remove_intermediate_file ();
-      Produce.return (Action_res.return Done))
-    else (
-      let is_copied_from_source_tree file =
-        match Path.extract_build_context_dir_maybe_sandboxed file with
-        | None -> false
-        | Some (_, file) -> Path.Untracked.exists (Path.source file)
-      in
-      let+ () =
-        let in_source_or_target =
-          is_copied_from_source_tree file1 || not (Path.Untracked.exists file1)
-        in
-        let source_file =
-          snd (Option.value_exn (Path.extract_build_context_dir_maybe_sandboxed file1))
-        in
-        Produce.of_fiber
-        @@ Fiber.finalize
-             (fun () ->
-               let annots =
-                 User_message.Annots.singleton
-                   Diff_promotion.Annot.annot
-                   { Diff_promotion.Annot.in_source = source_file
-                   ; in_build =
-                       (if optional && in_source_or_target
-                        then Diff_promotion.File.in_staging_area source_file
-                        else file2)
-                   }
-               in
-               if mode = Binary
-               then
-                 User_error.raise
-                   ~annots
-                   ~loc:ectx.rule_loc
-                   [ Pp.textf
-                       "Files %s and %s differ."
-                       (Path.to_string_maybe_quoted file1)
-                       (Path.to_string_maybe_quoted (Path.build file2))
-                   ]
-               else
-                 Print_diff.print
-                   annots
-                   file1
-                   (Path.build file2)
-                   ~skip_trailing_cr:(mode = Text && Sys.win32))
-             ~finally:(fun () ->
-               (match optional with
-                | false ->
-                  (* Promote if in the source tree or not a target. The second case
-                     means that the diffing have been done with the empty file *)
-                  if in_source_or_target
-                     && not (is_copied_from_source_tree (Path.build file2))
-                  then
-                    Diff_promotion.File.register_dep ~source_file ~correction_file:file2
-                | true ->
-                  if in_source_or_target
-                  then
-                    Diff_promotion.File.register_intermediate
-                      ~source_file
-                      ~correction_file:file2
-                  else remove_intermediate_file ());
-               Fiber.return ())
-      in
-      Action_res.return Done)
-  | Pipe (outputs, l) ->
-    exec_pipe ~display ~ectx ~eenv outputs l
-  | Extension (module A) ->
-    let+ () =
-      Produce.of_fiber
-      @@ A.Spec.action A.v ~ectx:(restrict_ctx ectx) ~eenv:(restrict_env eenv)
-    in
     Action_res.return Done
   | Needed_deps needed ->
     let ds = Dune_sexp.Decoder.repeat (Dep.decode eenv.working_dir) in
@@ -507,7 +273,6 @@ let rec exec t ~display ~ectx ~eenv : Action_res.t Produce.t =
     let deps = List.map parsed_sexp ~f:(Dune_sexp.Decoder.parse ds Univ_map.empty) in
     let needed_deps = Dep.Set.of_list (List.concat deps) in
     Produce.return (Action_res.return ~needed_deps Done)
->>>>>>> 3b285a94d (Add Order_only dep specification + and action needed_deps)
 
 and redirect_out t ~display ~ectx ~eenv ~perm outputs fn =
   redirect t ~display ~ectx ~eenv ~out:(outputs, fn, perm) ()
@@ -624,12 +389,12 @@ let exec_until_all_deps_ready ~display ~ectx ~eenv t =
     let* result = exec ~display ~ectx ~eenv t in
     match result with
     | { done_or_more_deps = Done; needed_deps = deps } ->
-      let* fact_map = Produce.of_fiber @@ ectx.build_deps deps in
+      let* fact_map = Produce.of_fiber @@ ectx.build_deps (Lazy ectx.rule_loc) deps in
       Produce.return (stages, (deps, fact_map))
     | { done_or_more_deps = Need_more_deps (relative_deps, deps_to_build)
       ; needed_deps = _
       } ->
-      let* fact_map = Produce.of_fiber @@ ectx.build_deps deps_to_build in
+      let* fact_map = Produce.of_fiber @@ ectx.build_deps Eager deps_to_build in
       let stages = (deps_to_build, fact_map) :: stages in
       let eenv =
         { eenv with

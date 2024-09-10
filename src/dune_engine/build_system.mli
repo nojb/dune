@@ -3,7 +3,7 @@
 open Import
 
 (** Build a file. *)
-val build_file : Path.t -> unit Memo.t
+val build_file : ?build_mode:Action_intf.Exec.build_mode -> Path.t -> unit Memo.t
 
 (** Build a file and read its contents with [f]. The execution of [f] is not memoized, so
     call sites should be careful to avoid duplicating [f]'s work. *)
@@ -16,7 +16,11 @@ val read_file : Path.t -> string Memo.t
 val file_exists : Path.t -> bool Memo.t
 
 (** Build a set of dependencies and return learned facts about them. *)
-val build_deps : Dep.Set.t -> Dep.Facts.t Memo.t
+
+val build_deps
+  :  ?build_mode:Action_intf.Exec.build_mode
+  -> Dep.Set.t
+  -> Dep.Facts.t Memo.t
 
 (** Record the given set as dependencies of the action produced by the action builder. *)
 val record_deps : Dep.Set.t -> unit Action_builder.t
@@ -27,17 +31,26 @@ val record_deps : Dep.Set.t -> unit Action_builder.t
     This function does the minimum amount of work necessary to produce the result, and may
     do some building (e.g., if [glob] points inside a directory target). To force building
     the files you need, use [build_file]. *)
-val eval_pred : File_selector.t -> Filename_set.t Memo.t
+
+val eval_pred
+  :  ?build_mode:Action_intf.Exec.build_mode
+  -> File_selector.t
+  -> Filename_set.t Memo.t
 
 (** Same as [eval_pred] with [Predicate.true_] as predicate. *)
 val files_of : dir:Path.t -> Filename_set.t Memo.t
 
 (** Execute an action. The execution is cached. *)
-val execute_action : observing_facts:Dep.Facts.t -> Rule.Anonymous_action.t -> unit Memo.t
+val execute_action
+  :  observing_facts:Dep.Facts.t
+  -> ?build_mode:Action_intf.Exec.build_mode
+  -> Rule.Anonymous_action.t
+  -> unit Memo.t
 
 (** Execute an action and capture its stdout. The execution is cached. *)
 val execute_action_stdout
   :  observing_facts:Dep.Facts.t
+  -> ?build_mode:Action_intf.Exec.build_mode
   -> Rule.Anonymous_action.t
   -> string Memo.t
 
@@ -46,7 +59,11 @@ type rule_execution_result =
   ; targets : Digest.t Targets.Produced.t
   }
 
-val execute_rule : Rule.t -> rule_execution_result Memo.t
+val execute_rule
+  :  ?build_mode:Action_intf.Exec.build_mode
+  -> Rule.t
+  -> rule_execution_result Memo.t
+
 val dep_on_alias_definition : Rules.Dir_rules.Alias_spec.item -> unit Action_builder.t
 
 (** {2 Running the build system} *)

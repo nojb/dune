@@ -74,7 +74,9 @@ let execute_pp_action ~sctx file pp_file dump_file =
   in
   let ok =
     let open Fiber.O in
-    let build_deps deps = Build_system.build_deps deps |> Memo.run in
+    let build_deps build_mode deps =
+      Build_system.build_deps ~build_mode deps |> Memo.run
+    in
     let* result = Dune_engine.Action_exec.exec input ~build_deps in
     Dune_engine.Action_exec.Exec_result.ok_exn result >>| ignore
   in

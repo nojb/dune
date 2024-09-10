@@ -83,20 +83,21 @@ module type Helpers = sig
   val rename : target -> target -> t
   val remove_tree : target -> t
   val mkdir : target -> t
-<<<<<<< HEAD
-=======
-  val diff : ?optional:bool -> ?mode:Diff.Mode.t -> path -> target -> t
   val needed_deps : path list -> t
->>>>>>> 3b285a94d (Add Order_only dep specification + and action needed_deps)
 end
 
 module Exec = struct
+  (** mode for calling build_deps. in lazy mode, any attempt to do some build will fail.*)
+  type build_mode =
+    | Lazy of Loc.t
+    | Eager
+
   type context =
     { targets : Targets.Validated.t option
     ; context : Build_context.t option
     ; metadata : Process.metadata
     ; rule_loc : Loc.t
-    ; build_deps : Dep.Set.t -> Dep.Facts.t Fiber.t
+    ; build_deps : build_mode -> Dep.Set.t -> Dep.Facts.t Fiber.t
     }
 
   type env =
