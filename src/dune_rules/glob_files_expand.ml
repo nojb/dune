@@ -183,7 +183,8 @@ let memo =
     Expand
       (Memo)
       (struct
-        let collect_files ~loc:_ = Build_system.eval_pred
+        let eval_pred file_selector = Build_system.eval_pred file_selector
+        let collect_files ~loc:_ = eval_pred
       end)
   in
   Memo.expand

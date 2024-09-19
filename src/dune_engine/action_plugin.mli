@@ -11,10 +11,20 @@ type done_or_more_deps =
 
 val done_or_more_deps_union : done_or_more_deps -> done_or_more_deps -> done_or_more_deps
 
+module Action_res : sig
+  type t =
+    { done_or_more_deps : done_or_more_deps
+    ; needed_deps : Dep.Set.t
+    }
+
+  val return : ?needed_deps:Dep.Set.t -> done_or_more_deps -> t
+  val union : t -> t -> t
+end
+
 val exec
   :  display:Display.t
   -> ectx:Action_intf.Exec.context
   -> eenv:Action_intf.Exec.env
   -> Path.t
   -> string list
-  -> done_or_more_deps Fiber.t
+  -> Action_res.t Fiber.t
