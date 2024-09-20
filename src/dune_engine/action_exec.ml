@@ -97,6 +97,7 @@ module Exec_result = struct
       | Unix.Unix_error (err, call, args) -> Unix (err, call, args)
       | Memo.Non_reproducible Scheduler.Run.Build_cancelled ->
         Nonreproducible_build_cancelled
+      | Memo.Error.E e -> reraise (Memo.Error.get e)
       | Memo.Cycle_error.E _ as e ->
         (* [Memo.Cycle_error.t] is hard to serialize and can only be raised during action
            execution with the dynamic dependencies plugin, which is not production-ready yet.
@@ -383,12 +384,12 @@ let exec_until_all_deps_ready ~display ~ectx ~eenv t =
     let* result = exec ~display ~ectx ~eenv t in
     match result with
     | { done_or_more_deps = Done; needed_deps = deps } ->
-      let* fact_map = Produce.of_fiber @@ ectx.build_deps deps in
+      let* fact_map = Produce.of_fiber @@ ectx.build_deps (Lazy ectx.rule_loc) deps in
       Produce.return (stages, (deps, fact_map))
     | { done_or_more_deps = Need_more_deps (relative_deps, deps_to_build)
       ; needed_deps = _
       } ->
-      let* fact_map = Produce.of_fiber @@ ectx.build_deps deps_to_build in
+      let* fact_map = Produce.of_fiber @@ ectx.build_deps Eager deps_to_build in
       let stages = (deps_to_build, fact_map) :: stages in
       let eenv =
         { eenv with

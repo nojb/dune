@@ -183,8 +183,8 @@ module Workspace_local = struct
          could remember what stage needs re-running and only re-run that (and
          later stages). *)
       let open Fiber.O in
-      let check_deps (deps, old_digest) error =
-        let+ deps = Memo.run (build_deps deps) in
+      let check_deps (deps, old_digest) error ~(build_mode : Action_intf.Exec.build_mode) =
+        let+ deps = Memo.run (build_deps ~build_mode deps) in
         let new_digest = Dep.Facts.digest deps ~env in
         match Digest.equal old_digest new_digest with
         | true -> Hit produced_targets
@@ -193,13 +193,21 @@ module Workspace_local = struct
       let rec check_dynamic_deps = function
         | [] -> Fiber.return (Hit produced_targets)
         | (deps, old_digest) :: rest ->
-          let* check = check_deps (deps, old_digest) Miss_reason.Dynamic_deps_changed in
+          let* check =
+            check_deps
+              (deps, old_digest)
+              Miss_reason.Dynamic_deps_changed
+              ~build_mode:Eager
+          in
           (match check with
            | Hit _ -> check_dynamic_deps rest
            | Miss error -> Fiber.return (Miss error))
       in
       let* check_needed_deps =
-        check_deps prev_trace.needed_deps Miss_reason.Needed_deps_changed
+        check_deps
+          prev_trace.needed_deps
+          Miss_reason.Needed_deps_changed
+          ~build_mode:(Lazy Loc.none)
       in
       (match check_needed_deps with
        | Hit _ -> check_dynamic_deps prev_trace.dynamic_deps_stages

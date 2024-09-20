@@ -41,5 +41,5 @@ type input =
 
 val exec
   :  input
-  -> build_deps:(Dep.Set.t -> Dep.Fact.t Dep.Map.t Fiber.t)
+  -> build_deps:(Action_intf.Exec.build_mode -> Dep.Set.t -> Dep.Fact.t Dep.Map.t Fiber.t)
   -> Exec_result.t Fiber.t
