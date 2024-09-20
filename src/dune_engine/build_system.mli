@@ -17,10 +17,11 @@ val file_exists : Path.t -> bool Memo.t
 
 (** Build a set of dependencies and return learned facts about them. *)
 
-val build_deps
-  :  ?build_mode:Action_intf.Exec.build_mode
-  -> Dep.Set.t
-  -> Dep.Facts.t Memo.t
+(** If [?fail_if_build] is set to [Some loc] (it is [None] by default), then the
+    build will fail if any actual building (beyond promoting from the local
+    cache) is needed in the build; an error pointing to [loc] is printed to the
+    user. *)
+val build_deps : ?fail_if_build:Loc.t -> Dep.Set.t -> Dep.Facts.t Memo.t
 
 (** Record the given set as dependencies of the action produced by the action builder. *)
 val record_deps : Dep.Set.t -> unit Action_builder.t

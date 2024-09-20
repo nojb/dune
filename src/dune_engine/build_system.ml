@@ -1,7 +1,6 @@
 open Import
 open Memo.O
 module Error = Build_system_error
-open Action_intf.Exec
 
 module Progress = struct
   type t =
@@ -125,60 +124,54 @@ type rule_execution_result =
   ; targets : Digest.t Targets.Produced.t
   }
 
-module Build_file_input = struct
-  type t = Path.t * build_mode
+type 'key memo_key =
+  { fail_if_build : Loc.t option
+  ; key : 'key
+  }
 
-  let equal a b = Path.equal (fst a) (fst b)
-  let hash t = Path.hash (fst t)
-  let to_dyn t = Path.to_dyn (fst t)
+module Make_X (Key : Stdune.Table.Key) : Stdune.Table.Key with type t = Key.t memo_key =
+struct
+  type t = Key.t memo_key
+
+  let equal t1 t2 = Key.equal t1.key t2.key
+  let hash t = Key.hash t.key
+  let to_dyn t = Key.to_dyn t.key
 end
 
-module Eval_pred_input = struct
-  type t = File_selector.t * build_mode
+module Build_file_input = Make_X (Path)
+module Eval_pred_input = Make_X (File_selector)
+module Execute_rule_input = Make_X (Rule)
 
-  let equal a b = File_selector.equal (fst a) (fst b)
-  let hash t = File_selector.hash (fst t)
-  let to_dyn t = File_selector.to_dyn (fst t)
-end
+(* module Build_file_table = struct *)
+(*   include Hashtbl.Make (Build_file_input) *)
 
-module Execute_rule_input = struct
-  type t = Rule.t * build_mode
-
-  let equal a b = Rule.equal (fst a) (fst b)
-  let hash t = Rule.hash (fst t)
-  let to_dyn t = Rule.to_dyn (fst t)
-end
-
-module Build_file_table = struct
-  include Hashtbl.Make (Build_file_input)
-
-  let create () = create 0
-end
+(*   let create () = create 0 *)
+(* end *)
 
 module type Rec = sig
   (** Build all the transitive dependencies of the alias and return the alias
       expansion. *)
   val build_alias : Alias.t -> Dep.Fact.Files.t Memo.t
 
-  val build_file : Path.t -> build_mode:build_mode -> Digest.t Memo.t
-  val build_dir : ?build_mode:build_mode -> Path.t -> Digest.t Targets.Produced.t Memo.t
-  val build_dep : Dep.t -> build_mode:build_mode -> Dep.Fact.t Memo.t
-  val build_deps : ?build_mode:build_mode -> Dep.Set.t -> Dep.Facts.t Memo.t
-  val execute_rule : ?build_mode:build_mode -> Rule.t -> rule_execution_result Memo.t
+  val build_file : ?fail_if_build:Loc.t -> Path.t -> Digest.t Memo.t
+  val build_dir : ?fail_if_build:Loc.t -> Path.t -> Digest.t Targets.Produced.t Memo.t
+  val build_dep : ?fail_if_build:Loc.t -> Dep.t -> Dep.Fact.t Memo.t
+  val build_deps : ?fail_if_build:Loc.t -> Dep.Set.t -> Dep.Facts.t Memo.t
+  val execute_rule : ?fail_if_build:Loc.t -> Rule.t -> rule_execution_result Memo.t
 
   val execute_action
-    :  observing_facts:Dep.Facts.t
-    -> ?build_mode:build_mode
+    :  ?fail_if_build:Loc.t
+    -> observing_facts:Dep.Facts.t
     -> Rule.Anonymous_action.t
     -> unit Memo.t
 
   val execute_action_stdout
-    :  observing_facts:Dep.Facts.t
-    -> ?build_mode:build_mode
+    :  ?fail_if_build:Loc.t
+    -> observing_facts:Dep.Facts.t
     -> Rule.Anonymous_action.t
     -> string Memo.t
 
-  val eval_pred : ?build_mode:build_mode -> File_selector.t -> Filename_set.t Memo.t
+  val eval_pred : ?fail_if_build:Loc.t -> File_selector.t -> Filename_set.t Memo.t
 end
 
 (* Separation between [Used_recursively] and [Exported] is necessary because at
@@ -189,7 +182,7 @@ module rec Used_recursively : Rec = Exported
 and Exported : sig
   include Rec
 
-  val execute_rule : ?build_mode:build_mode -> Rule.t -> rule_execution_result Memo.t
+  val execute_rule : ?fail_if_build:Loc.t -> Rule.t -> rule_execution_result Memo.t
 
   type target_kind =
     | File_target
@@ -211,10 +204,10 @@ end = struct
     Pp.concat [ Pp.text (File_selector.to_dyn file_selector |> Dyn.to_string) ]
   ;;
 
-  let build_file_selector ~build_mode : File_selector.t -> Dep.Fact.t Memo.t =
-    let impl file_selector ~build_mode =
-      let* files = eval_pred file_selector ~build_mode in
-      let build_file = build_file ~build_mode in
+  let build_file_selector : File_selector.t memo_key -> Dep.Fact.t Memo.t =
+    let impl { fail_if_build; key = file_selector } =
+      let* files = eval_pred ?fail_if_build file_selector in
+      let build_file = build_file ?fail_if_build in
       let+ fact = Dep.Fact.Files.create files ~build_file in
       (* Fact: [file_selector] expands to the set of [files] whose digests are captured
          via [build_file]; also, the [File_selector.dir] exists (though it may be empty) *)
@@ -223,26 +216,26 @@ end = struct
     let memo =
       Memo.create
         "build_file_selector"
-        ~input:(module File_selector)
+        ~input:(module Eval_pred_input)
         ~cutoff:Dep.Fact.equal
           (* CR-someday amokhov: Pass [file_selector_stack_frame_description] here to
              include globs into stack traces. *)
         ?human_readable_description:None
-        (impl ~build_mode)
+        impl
     in
     fun file_selector -> Memo.exec memo file_selector
   ;;
 
   (* [build_dep] turns a [Dep.t] which is a description of a dependency into a
      fact about the world. To do that, it needs to do some building. *)
-  let build_dep (dep : Dep.t) ~build_mode : Dep.Fact.t Memo.t =
+  let build_dep (dep : Dep.t memo_key) : Dep.Fact.t Memo.t =
     match dep with
     | Alias a ->
       let+ digests = build_alias a in
       (* Fact: alias [a] expands to the set of file-digest pairs [digests] *)
       Dep.Fact.alias a digests
     | File f ->
-      let+ digest = build_file ~build_mode f in
+      let+ digest = build_file { fail_if_build; key = f } in
       (* Fact: file [f] has digest [digest] *)
       Dep.Fact.file f digest
     | File_selector file_selector -> build_file_selector ~build_mode file_selector

@@ -383,9 +383,11 @@ let exec_until_all_deps_ready ~display ~ectx ~eenv t =
   let rec loop ~eenv stages =
     let* result = exec ~display ~ectx ~eenv t in
     match result with
-    | { done_or_more_deps = Done; needed_deps = deps } ->
-      let* fact_map = Produce.of_fiber @@ ectx.build_deps (Lazy ectx.rule_loc) deps in
-      Produce.return (stages, (deps, fact_map))
+    | { done_or_more_deps = Done; needed_deps } ->
+      let+ fact_map =
+        Produce.of_fiber @@ ectx.build_deps (Lazy ectx.rule_loc) needed_deps
+      in
+      stages, (needed_deps, fact_map)
     | { done_or_more_deps = Need_more_deps (relative_deps, deps_to_build)
       ; needed_deps = _
       } ->
