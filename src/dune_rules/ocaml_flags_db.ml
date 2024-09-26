@@ -21,11 +21,11 @@ let ocaml_flags_env =
     (Staged.unstage f) dir
 ;;
 
-let ocaml_flags sctx ~dir (spec : Ocaml_flags.Spec.t) =
+let ocaml_flags sctx ~dir (spec : Ocaml_flags.Spec.Per_module.t) =
   let* flags =
     let* expander = Super_context.expander sctx ~dir in
     let+ ocaml_flags = ocaml_flags_env ~dir in
-    Ocaml_flags.make
+    Ocaml_flags.Per_module.make
       ~spec
       ~default:ocaml_flags
       ~eval:(Expander.expand_and_eval_set expander)
@@ -38,7 +38,7 @@ let ocaml_flags sctx ~dir (spec : Ocaml_flags.Spec.t) =
       let+ ocaml = Super_context.context sctx |> Context.ocaml in
       ocaml.version
     in
-    Ocaml_flags.with_vendored_flags ~ocaml_version flags
+    Ocaml_flags.Per_module.with_vendored_flags ~ocaml_version flags
 ;;
 
 let link_env =

@@ -34,13 +34,15 @@ module Per_item = struct
   include Per_item.Make (String)
   open Dune_lang.Decoder
 
-  let decode ~default a =
+  let decode ?(check = return ()) ~default a =
     peek_exn
     >>= function
     | List (loc, Atom (_, A "per_module") :: _) ->
       sum
         [ ( "per_module"
-          , let+ x =
+          , check
+            >>>
+            let+ x =
               repeat
                 (let+ pp, names = pair a (repeat decode) in
                  names, pp)

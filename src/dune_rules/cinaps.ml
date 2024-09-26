@@ -180,7 +180,7 @@ let gen_rules sctx t ~dir ~scope =
       ~opaque:(Explicit false)
       ~requires_compile
       ~requires_link
-      ~flags:(Ocaml_flags.of_list [ "-w"; "-24" ])
+      ~flags:(Ocaml_flags.Per_module.of_list [ "-w"; "-24" ])
       ~js_of_ocaml:None
       ~melange_package_name:None
       ~package:None

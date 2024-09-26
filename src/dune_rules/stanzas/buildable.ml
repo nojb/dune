@@ -16,7 +16,7 @@ type t =
   ; preprocess : Preprocess.With_instrumentation.t Preprocess.Per_module.t
   ; preprocessor_deps : Dep_conf.t list
   ; lint : Preprocess.Without_instrumentation.t Preprocess.Per_module.t
-  ; flags : Ocaml_flags.Spec.t
+  ; flags : Ocaml_flags.Spec.Per_module.t
   ; js_of_ocaml : Js_of_ocaml.In_buildable.t
   ; allow_overlapping_dependencies : bool
   ; ctypes : Ctypes_field.t option
@@ -90,7 +90,7 @@ let decode (for_ : for_) =
       | Executable -> false
     in
     field "libraries" (Lib_dep.L.decode ~allow_re_export) ~default:[]
-  and+ flags = Ocaml_flags.Spec.decode
+  and+ flags = Ocaml_flags.Spec.Per_module.decode
   and+ js_of_ocaml =
     let executable =
       match for_ with

@@ -44,6 +44,7 @@ module Make (Key : Map.Key) : Per_item_intf.S with type key = Key.t = struct
   let fold t ~init ~f = Array.Immutable.fold_right t.values ~init ~f
   let exists t ~f = Array.Immutable.exists t.values ~f
   let is_constant t = Array.Immutable.length t.values = 1
+  let get_default t = Array.Immutable.get t.values 0
 
   module Make_monad_traversals (M : sig
       include Monad.S

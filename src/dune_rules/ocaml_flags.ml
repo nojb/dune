@@ -71,6 +71,12 @@ let equal f { common; specific } t =
   f common t.common && Lib_mode.Map.equal f specific t.specific
 ;;
 
+let for_all { common; specific } =
+  { common = Module_name.Per_item.for_all common
+  ; specific = Lib_mode.Map.map ~f:Module_name.Per_item.for_all specific
+  }
+;;
+
 module Spec = struct
   type t = Ordered_set_lang.Unexpanded.t t'
 
@@ -82,11 +88,10 @@ module Spec = struct
     }
   ;;
 
-  let make ~common ~specific : t = { common; specific }
+  let make ~common ~specific = { common; specific }
 
-  let decode =
+  let decode_generic (field_oslu : ?check:_ -> _ -> _) =
     let open Dune_lang.Decoder in
-    let field_oslu = Ordered_set_lang.Unexpanded.field in
     let+ common = field_oslu "flags"
     and+ byte = field_oslu "ocamlc_flags"
     and+ native = field_oslu "ocamlopt_flags"
@@ -98,6 +103,33 @@ module Spec = struct
     let specific = Lib_mode.Map.make ~byte ~native ~melange in
     { common; specific }
   ;;
+
+  let decode =
+    let field_oslu ?check name = Ordered_set_lang.Unexpanded.field ?check name in
+    decode_generic field_oslu
+  ;;
+
+  module Per_module = struct
+    type t = Ordered_set_lang.Unexpanded.t Module_name.Per_item.t t'
+
+    let for_all = for_all
+    let make ~common ~specific = for_all (make ~common ~specific)
+
+    let decode : t Dune_lang.Decoder.fields_parser =
+      let open Dune_lang.Decoder in
+      let field_oslu ?(check = return ()) name =
+        let default = Ordered_set_lang.Unexpanded.standard in
+        field
+          name
+          ~default:(Module_name.Per_item.for_all default)
+          (Module_name.Per_item.decode
+             ~check:(Dune_lang.Syntax.since Stanza.syntax (2, 17))
+             ~default
+             (check >>> Ordered_set_lang.Unexpanded.decode_one))
+      in
+      decode_generic field_oslu
+    ;;
+  end
 end
 
 type t = string list Action_builder.t t'
@@ -121,9 +153,10 @@ let default ~dune_version ~profile =
   }
 ;;
 
-let make ~spec ~default ~eval =
+let make_generic ~f ~spec ~default ~eval =
   let f name x standard =
-    Action_builder.memoize ~cutoff:(List.equal String.equal) name (eval x ~standard)
+    f x ~f:(fun x ->
+      Action_builder.memoize ~cutoff:(List.equal String.equal) name (eval x ~standard))
   in
   { common = f "common flags" spec.common default.common
   ; specific =
@@ -137,23 +170,15 @@ let make ~spec ~default ~eval =
   }
 ;;
 
-let get t mode =
-  let+ common = t.common
-  and+ specific = Lib_mode.Map.get t.specific mode in
+let make = make_generic ~f:(fun x ~f -> f x)
+
+let get_generic t mode ~f =
+  let+ common = f t.common
+  and+ specific = f (Lib_mode.Map.get t.specific mode) in
   common @ specific
 ;;
 
-let map_common t ~f =
-  let common =
-    let+ l = t.common in
-    f l
-  in
-  { t with common }
-;;
-
-let append_common t flags = map_common t ~f:(fun l -> l @ flags)
-let with_vendored_warnings t = append_common t vendored_warnings
-let with_vendored_alerts t = append_common t vendored_alerts
+let get t mode = get_generic t mode ~f:Fun.id
 
 let dump t =
   let+ common = t.common
@@ -169,27 +194,50 @@ let dump t =
     ]
 ;;
 
-let with_vendored_flags flags ~ocaml_version =
-  let with_warnings = with_vendored_warnings flags in
-  if Ocaml.Version.supports_alerts ocaml_version
-  then with_vendored_alerts with_warnings
-  else with_warnings
-;;
-
-let allow_only_melange t =
-  let ocaml =
-    Ocaml.Mode.Dict.make_both
-      (Action_builder.fail
-         { fail =
-             (fun () ->
-               Code_error.raise
-                 "only melange flags are allowed to be evaluated with this flags set"
-                 [])
-         })
-  in
-  { t with specific = { t.specific with ocaml } }
-;;
-
 let open_flags modules =
   List.concat_map modules ~f:(fun name -> [ "-open"; Module_name.to_string name ])
 ;;
+
+module Per_module = struct
+  type t = string list Action_builder.t Module_name.Per_item.t t'
+
+  let for_all = for_all
+  let empty = for_all empty
+  let of_list l = for_all (of_list l)
+  let default ~dune_version ~profile = for_all (default ~dune_version ~profile)
+  let get t name mode = get_generic t mode ~f:(fun x -> Module_name.Per_item.get x name)
+  let get_default t mode = get_generic t mode ~f:Module_name.Per_item.get_default
+
+  let map_common t ~f =
+    let common = Module_name.Per_item.map ~f:(fun common -> common >>| f) t.common in
+    { t with common }
+  ;;
+
+  let append_common t flags = map_common t ~f:(fun l -> l @ flags)
+  let with_vendored_warnings t = append_common t vendored_warnings
+  let with_vendored_alerts t = append_common t vendored_alerts
+
+  let with_vendored_flags flags ~ocaml_version =
+    let with_warnings = with_vendored_warnings flags in
+    if Ocaml.Version.supports_alerts ocaml_version
+    then with_vendored_alerts with_warnings
+    else with_warnings
+  ;;
+
+  let allow_only_melange t =
+    let ocaml =
+      Ocaml.Mode.Dict.make_both
+        (Module_name.Per_item.for_all
+           (Action_builder.fail
+              { fail =
+                  (fun () ->
+                    Code_error.raise
+                      "only melange flags are allowed to be evaluated with this flags set"
+                      [])
+              }))
+    in
+    { t with specific = { t.specific with ocaml } }
+  ;;
+
+  let make = make_generic ~f:Module_name.Per_item.map
+end

@@ -62,7 +62,7 @@ let build_lib
     let obj_deps =
       Action_builder.paths (Cm_files.unsorted_objects_and_cms cm_files ~mode)
     in
-    let ocaml_flags = Ocaml_flags.get flags (Ocaml mode) in
+    let ocaml_flags = Ocaml_flags.Per_module.get_default flags (Ocaml mode) in
     let* standard =
       let+ project = Dune_load.find_project ~dir in
       match Dune_project.use_standard_c_and_cxx_flags project with
@@ -395,7 +395,7 @@ let build_shared lib ~native_archives ~sctx ~dir ~flags =
       >>> Command.run
             ~dir:(Path.build (Context.build_dir ctx))
             (Ok ocamlopt)
-            [ Command.Args.dyn (Ocaml_flags.get flags (Ocaml Native))
+            [ Command.Args.dyn (Ocaml_flags.Per_module.get_default flags (Ocaml Native))
             ; A "-shared"
             ; A "-linkall"
             ; A "-I"
@@ -496,7 +496,7 @@ let setup_build_archives (lib : Library.t) ~top_sorted_modules ~cctx ~expander ~
 ;;
 
 let cctx (lib : Library.t) ~sctx ~source_modules ~dir ~expander ~scope ~compile_info =
-  let* flags = Buildable_rules.ocaml_flags sctx ~dir lib.buildable.flags
+  let* flags = Ocaml_flags_db.ocaml_flags sctx ~dir lib.buildable.flags
   and* vimpl = Virtual_rules.impl sctx ~lib ~scope in
   let obj_dir = Library.obj_dir ~dir lib in
   let* ocaml =

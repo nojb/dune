@@ -221,8 +221,8 @@ module Stanza = struct
     let obj_dir = Source.obj_dir source in
     let flags =
       let profile = Super_context.context sctx |> Context.profile in
-      Ocaml_flags.append_common
-        (Ocaml_flags.default ~dune_version ~profile)
+      Ocaml_flags.Per_module.append_common
+        (Ocaml_flags.Per_module.default ~dune_version ~profile)
         [ "-w"; "-24" ]
     in
     let* modules = Source.modules source preprocessing in

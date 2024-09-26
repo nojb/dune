@@ -17,7 +17,11 @@ val pp_quote : Format.formatter -> t -> unit
 module Per_item : sig
   include Per_item with type key = t
 
-  val decode : default:'a -> 'a Dune_lang.Decoder.t -> 'a t Dune_lang.Decoder.t
+  val decode
+    :  ?check:unit Dune_lang.Decoder.t
+    -> default:'a
+    -> 'a Dune_lang.Decoder.t
+    -> 'a t Dune_lang.Decoder.t
 end
 
 module Infix : Comparator.OPS with type t = t

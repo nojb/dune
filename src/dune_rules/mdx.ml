@@ -472,7 +472,7 @@ let mdx_prog_gen t ~sctx ~dir ~scope ~mdx_prog =
       Module.generated ~kind:Impl ~src_dir:dir [ main_module_name ]
       |> Modules.With_vlib.singleton_exe
     in
-    let flags = Ocaml_flags.default ~dune_version ~profile:Release in
+    let flags = Ocaml_flags.Per_module.default ~dune_version ~profile:Release in
     Compilation_context.create
       ~super_context:sctx
       ~scope

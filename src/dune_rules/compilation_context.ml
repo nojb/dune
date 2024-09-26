@@ -78,7 +78,7 @@ type t =
   ; scope : Scope.t
   ; obj_dir : Path.Build.t Obj_dir.t
   ; modules : modules
-  ; flags : Ocaml_flags.t
+  ; flags : Ocaml_flags.Per_module.t
   ; requires_compile : Lib.t list Resolve.Memo.t
   ; requires_hidden : Lib.t list Resolve.Memo.t
   ; requires_link : Lib.t list Resolve.t Memo.Lazy.t
@@ -222,7 +222,7 @@ let create
 
 let alias_and_root_module_flags =
   let extra = [ "-w"; "-49"; "-nopervasives"; "-nostdlib" ] in
-  fun base -> Ocaml_flags.append_common base extra
+  fun base -> Ocaml_flags.Per_module.append_common base extra
 ;;
 
 let for_alias_module t alias_module =
@@ -235,7 +235,7 @@ let for_alias_module t alias_module =
       let project = Scope.project t.scope in
       let dune_version = Dune_project.dune_version project in
       let profile = Super_context.context t.super_context |> Context.profile in
-      Ocaml_flags.default ~dune_version ~profile)
+      Ocaml_flags.Per_module.default ~dune_version ~profile)
   in
   let sandbox =
     (* If the compiler reads the cmi for module alias even with [-w -49
@@ -269,7 +269,7 @@ let for_root_module t root_module =
     let project = Scope.project t.scope in
     let dune_version = Dune_project.dune_version project in
     let profile = Super_context.context t.super_context |> Context.profile in
-    Ocaml_flags.default ~profile ~dune_version
+    Ocaml_flags.Per_module.default ~profile ~dune_version
   in
   { t with
     flags = alias_and_root_module_flags flags
@@ -296,7 +296,7 @@ let for_module_generated_at_link_time cctx ~requires ~module_ =
   in
   { cctx with
     opaque
-  ; flags = Ocaml_flags.empty
+  ; flags = Ocaml_flags.Per_module.empty
   ; requires_link = Memo.lazy_ (fun () -> requires)
   ; requires_compile = requires
   ; includes
@@ -306,7 +306,7 @@ let for_module_generated_at_link_time cctx ~requires ~module_ =
 
 let for_wrapped_compat t =
   (* See #10689 *)
-  let flags = Ocaml_flags.append_common t.flags [ "-w"; "-53" ] in
+  let flags = Ocaml_flags.Per_module.append_common t.flags [ "-w"; "-53" ] in
   { t with includes = Includes.empty; stdlib = None; flags }
 ;;
 

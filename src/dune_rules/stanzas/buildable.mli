@@ -15,7 +15,7 @@ type t =
   ; preprocess : Preprocess.With_instrumentation.t Preprocess.Per_module.t
   ; preprocessor_deps : Dep_conf.t list
   ; lint : Lint.t
-  ; flags : Ocaml_flags.Spec.t
+  ; flags : Ocaml_flags.Spec.Per_module.t
   ; js_of_ocaml : Js_of_ocaml.In_buildable.t
   ; allow_overlapping_dependencies : bool
   ; ctypes : Ctypes_field.t option

@@ -300,9 +300,11 @@ let setup_emit_cmj_rules
     let requires_link = Lib.Compile.requires_link compile_info in
     let* flags =
       let specific = Lib_mode.Map.make_all mel.compile_flags in
-      Ocaml_flags.Spec.make ~common:Ordered_set_lang.Unexpanded.standard ~specific
+      Ocaml_flags.Spec.Per_module.make
+        ~common:Ordered_set_lang.Unexpanded.standard
+        ~specific
       |> Ocaml_flags_db.ocaml_flags sctx ~dir
-      >>| Ocaml_flags.allow_only_melange
+      >>| Ocaml_flags.Per_module.allow_only_melange
     in
     let* cctx =
       let direct_requires = Lib.Compile.direct_requires compile_info in

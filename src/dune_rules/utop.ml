@@ -178,7 +178,9 @@ let setup sctx ~dir =
     let project = Scope.project scope in
     let dune_version = Dune_project.dune_version project in
     let profile = Super_context.context sctx |> Context.profile in
-    Ocaml_flags.append_common (Ocaml_flags.default ~dune_version ~profile) [ "-w"; "-24" ]
+    Ocaml_flags.Per_module.append_common
+      (Ocaml_flags.Per_module.default ~dune_version ~profile)
+      [ "-w"; "-24" ]
   in
   let* cctx =
     let requires_link = Memo.lazy_ (fun () -> requires) in

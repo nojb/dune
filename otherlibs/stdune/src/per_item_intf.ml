@@ -18,6 +18,9 @@ module type S = sig
       that the mapping might still be constant if [is_constant] returns [false]. *)
   val is_constant : _ t -> bool
 
+  (** Get the default configuration for unlisted items *)
+  val get_default : 'a t -> 'a
+
   val map : 'a t -> f:('a -> 'b) -> 'b t
   val fold : 'a t -> init:'acc -> f:('a -> 'acc -> 'acc) -> 'acc
   val exists : 'a t -> f:('a -> bool) -> bool

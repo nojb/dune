@@ -49,6 +49,7 @@ module Unexpanded : sig
 
   include Dune_sexp.Conv.S with type t := t
 
+  val decode_one : t Decoder.t
   val encode : t -> Dune_sexp.t list
   val standard : t
   val of_strings : pos:string * int * int * int -> string list -> t

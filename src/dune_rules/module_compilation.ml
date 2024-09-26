@@ -209,7 +209,11 @@ let build_cm
    in
    let flags, sandbox =
      let flags =
-       Command.Args.dyn (Ocaml_flags.get (Compilation_context.flags cctx) mode)
+       Command.Args.dyn
+         (Ocaml_flags.Per_module.get
+            (Compilation_context.flags cctx)
+            (Module.name m)
+            mode)
      in
      match Module.pp_flags m with
      | None -> flags, sandbox
@@ -347,7 +351,12 @@ let ocamlc_i ~deps cctx (m : Module.t) ~output =
        List.concat_map deps ~f:(fun m ->
          [ Path.build (Obj_dir.Module.cm_file_exn obj_dir m ~kind:(Ocaml Cmi)) ]))
   in
-  let ocaml_flags = Ocaml_flags.get (Compilation_context.flags cctx) (Ocaml Byte) in
+  let ocaml_flags =
+    Ocaml_flags.Per_module.get
+      (Compilation_context.flags cctx)
+      (Module.name m)
+      (Ocaml Byte)
+  in
   let modules = Compilation_context.modules cctx in
   let ocaml = Compilation_context.ocaml cctx in
   Super_context.add_rule

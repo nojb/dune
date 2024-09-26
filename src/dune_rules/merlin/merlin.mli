@@ -43,7 +43,7 @@ end
 val make
   :  requires:Lib.t list Resolve.t
   -> stdlib_dir:Path.t
-  -> flags:Ocaml_flags.t
+  -> flags:Ocaml_flags.Per_module.t
   -> preprocess:Preprocess.Without_instrumentation.t Preprocess.t Module_name.Per_item.t
   -> libname:Lib_name.Local.t option
   -> source_dirs:Path.Source.Set.t

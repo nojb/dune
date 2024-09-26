@@ -148,9 +148,14 @@ include Sub_system.Register_end_point (struct
       and* cctx =
         let package = Library.package lib in
         let* ocaml_flags =
-          Buildable_rules.ocaml_flags sctx ~dir info.executable_ocaml_flags
+          Ocaml_flags_db.ocaml_flags
+            sctx
+            ~dir
+            (Ocaml_flags.Spec.Per_module.for_all info.executable_ocaml_flags)
         in
-        let flags = Ocaml_flags.append_common ocaml_flags [ "-w"; "-24"; "-g" ] in
+        let flags =
+          Ocaml_flags.Per_module.append_common ocaml_flags [ "-w"; "-24"; "-g" ]
+        in
         let js_of_ocaml =
           Js_of_ocaml.In_context.make
             ~dir

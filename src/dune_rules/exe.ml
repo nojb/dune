@@ -155,7 +155,9 @@ let link_exe
   let fdo_linker_script = Fdo.Linker_script.create cctx (Path.build exe) in
   let open Memo.O in
   let* action_with_targets =
-    let ocaml_flags = Ocaml_flags.get (Compilation_context.flags cctx) (Ocaml mode) in
+    let ocaml_flags =
+      Ocaml_flags.Per_module.get_default (Compilation_context.flags cctx) (Ocaml mode)
+    in
     let prefix =
       Cm_files.top_sorted_objects_and_cms cm_files ~mode |> Action_builder.dyn_paths_unit
     in

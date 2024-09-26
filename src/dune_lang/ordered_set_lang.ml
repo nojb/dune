@@ -56,7 +56,7 @@ module Parse = struct
   open Decoder
   open Ast
 
-  let generic ~inc ~elt =
+  let generic ~single ~inc ~elt =
     let open Decoder in
     let rec one () =
       peek_exn
@@ -96,11 +96,12 @@ module Parse = struct
         let* x = one () in
         many (x :: acc)
     in
-    many []
+    if single then one () else many []
   ;;
 
-  let with_include ~elt =
+  let with_include ~single ~elt =
     generic
+      ~single
       ~elt
       ~inc:
         (sum
@@ -110,8 +111,9 @@ module Parse = struct
            ])
   ;;
 
-  let without_include ~elt =
+  let without_include ~single ~elt =
     generic
+      ~single
       ~elt
       ~inc:
         (enter
@@ -125,7 +127,9 @@ let decode =
   let+ context = get_all
   and+ loc, ast =
     located
-      (Parse.without_include ~elt:(plain_string (fun ~loc s -> Ast.Element (loc, s))))
+      (Parse.without_include
+         ~single:false
+         ~elt:(plain_string (fun ~loc s -> Ast.Element (loc, s))))
   in
   { ast; loc = Some loc; context }
 ;;
@@ -241,18 +245,22 @@ module Unexpanded = struct
   let loc t = t.loc
   let equal x y = equal_generic (Ast.equal String_with_vars.equal_no_loc) x y
 
-  let decode : t Decoder.t =
+  let decode_generic ~single : t Decoder.t =
     let open Decoder in
     let+ context = get_all
     and+ loc, ast =
       located
         (Parse.with_include
+           ~single
            ~elt:
              (let+ s = String_with_vars.decode in
               Ast.Element s))
     in
     { ast; loc = Some loc; context }
   ;;
+
+  let decode = decode_generic ~single:false
+  let decode_one = decode_generic ~single:true
 
   let encode t =
     let open Ast in
@@ -303,6 +311,7 @@ module Unexpanded = struct
 
   let field_gen field ?check ?since_expanded is_expanded =
     let decode =
+      let decode = decode in
       match check with
       | None -> decode
       | Some x -> Decoder.( >>> ) x decode

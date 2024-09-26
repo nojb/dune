@@ -445,7 +445,7 @@ module Unprocessed = struct
     let objs_dirs =
       Path.Set.singleton @@ obj_dir_of_lib `Private mode (Obj_dir.of_local obj_dir)
     in
-    let flags = Ocaml_flags.get flags mode in
+    let flags = Ocaml_flags.Per_module.get_default flags mode in
     let { Dialect.DB.extensions; readers } = Dialect.DB.for_merlin dialects in
     let config =
       { stdlib_dir

@@ -155,7 +155,7 @@ let executables_rules
       ~explicit_js_mode
       ~jsoo_compilation_mode
   in
-  let* flags = Buildable_rules.ocaml_flags sctx ~dir exes.buildable.flags in
+  let* flags = Ocaml_flags_db.ocaml_flags sctx ~dir exes.buildable.flags in
   let* modules, pp =
     let+ modules, pp =
       Buildable_rules.modules_rules
