@@ -162,6 +162,7 @@ include Sub_system.Register_end_point (struct
           ~scope
           ~obj_dir
           ~modules
+          ~unlinked_modules:[]
           ~opaque:(Explicit false)
           ~requires_compile:runner_libs
           ~requires_link:(Memo.lazy_ (fun () -> runner_libs))

@@ -230,6 +230,7 @@ module Stanza = struct
         ~scope
         ~obj_dir
         ~modules
+        ~unlinked_modules:[]
         ~opaque:(Explicit false)
         ~requires_compile
         ~requires_link

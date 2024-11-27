@@ -180,7 +180,9 @@ let link_exe
   let* action_with_targets =
     let ocaml_flags = Ocaml_flags.get (Compilation_context.flags cctx) (Ocaml mode) in
     let prefix =
-      Cm_files.top_sorted_objects_and_cms cm_files ~mode |> Action_builder.dyn_paths_unit
+      Cm_files.top_sorted_objects_and_cms cm_files ~mode
+      |> Action_builder.map ~f:fst
+      |> Action_builder.dyn_paths_unit
     in
     let+ fdo_linker_script_flags = Fdo.Linker_script.flags fdo_linker_script in
     let open Action_builder.With_targets.O in
@@ -225,7 +227,8 @@ let link_exe
                      ~mode:linkage_mode
                  ])
           ; Deps o_files
-          ; Dyn (Action_builder.map top_sorted_cms ~f:(fun x -> Command.Args.Deps x))
+          ; Dyn
+              (Action_builder.map top_sorted_cms ~f:(fun x -> Command.Args.Deps (fst x)))
           ; fdo_linker_script_flags
           ; Dyn link_args
           ]
@@ -319,7 +322,9 @@ let link_many
       let cm_files =
         let ocaml = Compilation_context.ocaml cctx in
         let obj_dir = Compilation_context.obj_dir cctx in
+        let excluded_modules = Compilation_context.unlinked_modules cctx in
         Cm_files.make
+          ~excluded_modules
           ~obj_dir
           ~modules
           ~top_sorted_modules

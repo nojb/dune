@@ -147,7 +147,7 @@ let executables_rules
   =
   (* Use "eobjs" rather than "objs" to avoid a potential conflict with a library
      of the same name *)
-  let* modules, obj_dir =
+  let* modules, unlinked_modules, obj_dir =
     let first_exe = first_exe exes in
     Dir_contents.ocaml dir_contents
     >>= Ml_sources.modules_and_obj_dir ~libs:(Scope.libs scope) ~for_:(Exe { first_exe })
@@ -206,6 +206,7 @@ let executables_rules
       ~scope
       ~obj_dir
       ~modules
+      ~unlinked_modules
       ~flags
       ~requires_link
       ~requires_compile

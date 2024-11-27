@@ -70,10 +70,14 @@ let eval_opaque (ocaml : Ocaml_toolchain.t) profile = function
 type modules =
   { modules : Modules.With_vlib.t
   ; dep_graphs : Dep_graph.t Ml_kind.Dict.t
+  ; unlinked : Module_name.t list
   }
 
 let singleton_modules m =
-  { modules = Modules.With_vlib.singleton m; dep_graphs = Dep_graph.Ml_kind.dummy m }
+  { modules = Modules.With_vlib.singleton m
+  ; dep_graphs = Dep_graph.Ml_kind.dummy m
+  ; unlinked = []
+  }
 ;;
 
 type t =
@@ -107,6 +111,7 @@ let scope t = t.scope
 let dir t = Obj_dir.dir t.obj_dir
 let obj_dir t = t.obj_dir
 let modules t = t.modules.modules
+let unlinked_modules t = t.modules.unlinked
 let flags t = t.flags
 let requires_compile t = t.requires_compile
 let requires_hidden t = t.requires_hidden
@@ -133,6 +138,7 @@ let create
   ~scope
   ~obj_dir
   ~modules
+  ~unlinked_modules
   ~flags
   ~requires_compile
   ~requires_link
@@ -200,7 +206,7 @@ let create
   { super_context
   ; scope
   ; obj_dir
-  ; modules = { modules; dep_graphs }
+  ; modules = { modules; dep_graphs; unlinked = unlinked_modules }
   ; flags
   ; requires_compile = direct_requires
   ; requires_hidden = hidden_requires

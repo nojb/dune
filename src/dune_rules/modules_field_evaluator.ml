@@ -92,6 +92,7 @@ type single_module_error =
   | Vmodule_impls_with_own_intf
   | Undeclared_module_without_implementation
   | Undeclared_private_module
+  | Undeclared_unlinked_module
   | Undeclared_virtual_module
 
 type errors =
@@ -104,6 +105,7 @@ let find_errors
   ~intf_only
   ~virtual_modules
   ~private_modules
+  ~unlinked_modules
   ~existing_virtual_modules
   ~allow_new_public_modules
   =
@@ -111,7 +113,7 @@ let find_errors
     (* We expect that [modules] is big and all the other ones are small, that's
        why the code is implemented this way. *)
     List.fold_left
-      [ intf_only; virtual_modules; private_modules ]
+      [ intf_only; virtual_modules; private_modules; unlinked_modules ]
       ~init:(Module_trie.map modules ~f:snd)
       ~f:(fun acc map ->
         Module_trie.foldi map ~init:acc ~f:(fun name (_loc, m) acc ->
@@ -177,6 +179,7 @@ let check_invalid_module_listing
   ~modules
   ~virtual_modules
   ~private_modules
+  ~unlinked_modules
   ~existing_virtual_modules
   ~allow_new_public_modules
   ~is_vendored
@@ -188,6 +191,7 @@ let check_invalid_module_listing
       ~intf_only
       ~virtual_modules
       ~private_modules
+      ~unlinked_modules
       ~existing_virtual_modules
       ~allow_new_public_modules
   in
@@ -212,6 +216,7 @@ let check_invalid_module_listing
       get Undeclared_module_without_implementation
     in
     let undeclared_private_modules = get Undeclared_private_module in
+    let undeclared_unlinked_modules = get Undeclared_unlinked_module in
     let undeclared_virtual_modules = get Undeclared_virtual_module in
     let uncapitalized = List.map ~f:(fun (_, m) -> Module_name.Path.uncapitalize m) in
     let line_list modules =
@@ -281,6 +286,7 @@ let check_invalid_module_listing
       "modules_without_implementation"
       undeclared_modules_without_implementation;
     print_undelared_modules "private_modules" undeclared_private_modules;
+    print_undelared_modules "unlinked_modules" undeclared_unlinked_modules;
     print_undelared_modules "virtual_modules" undeclared_virtual_modules;
     if missing_intf_only <> []
     then (
@@ -337,6 +343,7 @@ let eval
   { Stanza_common.Modules_settings.modules = _
   ; root_module
   ; modules_without_implementation
+  ; unlinked_modules
   }
   modules
   =
@@ -358,7 +365,12 @@ let eval
     match kind with
     | Exe_or_normal_lib | Implementation _ -> Memo.return Module_trie.empty
     | Virtual { virtual_modules } -> eval ~standard:Module_trie.empty virtual_modules
-  and+ private_modules = eval ~standard:Module_trie.empty private_modules in
+  and+ private_modules = eval ~standard:Module_trie.empty private_modules
+  and+ unlinked_modules =
+    match unlinked_modules with
+    | None -> Memo.return Module_trie.empty
+    | Some unlinked_modules -> eval ~standard:Module_trie.empty unlinked_modules
+  in
   check_invalid_module_listing
     ~stanza_loc
     ~modules_without_implementation
@@ -366,6 +378,7 @@ let eval
     ~modules
     ~virtual_modules
     ~private_modules
+    ~unlinked_modules
     ~existing_virtual_modules
     ~allow_new_public_modules
     ~is_vendored
@@ -413,6 +426,21 @@ let eval
   let* modules0 =
     eval0 ~expander ~loc:stanza_loc ~all_modules ~standard:all_modules settings.modules
   in
+  let* unlinked_modules =
+    match settings.unlinked_modules with
+    | None -> Memo.return []
+    | Some unlinked_modules ->
+      let+ unlinked_modules =
+        eval0
+          ~expander
+          ~loc:stanza_loc
+          ~all_modules
+          ~standard:Module_trie.empty
+          unlinked_modules
+      in
+      Module_trie.fold unlinked_modules ~init:[] ~f:(fun (_loc, source_module) acc ->
+        Module.Source.name source_module :: acc)
+  in
   let* is_vendored =
     match Path.Build.drop_build_context src_dir with
     | Some src_dir -> Source_tree.is_vendored src_dir
@@ -431,5 +459,5 @@ let eval
       modules0
       ~version
   in
-  modules0, modules
+  modules0, unlinked_modules, modules
 ;;

@@ -271,7 +271,7 @@ let setup_emit_cmj_rules
   let ctx = Super_context.context sctx in
   let merlin_ident = Merlin_ident.for_melange ~target:mel.target in
   let f () =
-    let* modules, obj_dir =
+    let* modules, unlinked_modules, obj_dir =
       Dir_contents.ocaml dir_contents
       >>= Ml_sources.modules_and_obj_dir
             ~libs:(Scope.libs scope)
@@ -312,6 +312,7 @@ let setup_emit_cmj_rules
         ~scope
         ~obj_dir
         ~modules
+        ~unlinked_modules
         ~flags
         ~requires_link
         ~requires_compile:direct_requires
@@ -436,7 +437,7 @@ let setup_runtime_assets_rules sctx ~dir ~target_dir ~mode ~output ~for_ mel =
 ;;
 
 let modules_for_js_and_obj_dir ~sctx ~dir_contents ~scope (mel : Melange_stanzas.Emit.t) =
-  let* modules, obj_dir =
+  let* modules, _unlinked_modules, obj_dir =
     Dir_contents.ocaml dir_contents
     >>= Ml_sources.modules_and_obj_dir
           ~libs:(Scope.libs scope)

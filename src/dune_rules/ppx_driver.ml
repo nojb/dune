@@ -319,6 +319,7 @@ let build_ppx_driver sctx ~scope ~target ~pps ~pp_names =
       ~scope
       ~obj_dir
       ~modules
+      ~unlinked_modules:[]
       ~flags
       ~requires_compile:(Memo.return requires_compile)
       ~requires_link

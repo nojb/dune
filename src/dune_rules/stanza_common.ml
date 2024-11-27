@@ -129,6 +129,7 @@ module Modules_settings = struct
     { root_module : (Loc.t * Module_name.t) option
     ; modules_without_implementation : Ordered_set_lang.Unexpanded.t
     ; modules : Ordered_set_lang.Unexpanded.t
+    ; unlinked_modules : Ordered_set_lang.Unexpanded.t option
     }
 
   let since_expanded = 3, 13
@@ -137,7 +138,12 @@ module Modules_settings = struct
     let+ root_module = field_o "root_module" Module_name.decode_loc
     and+ modules_without_implementation =
       Ordered_set_lang.Unexpanded.field ~since_expanded "modules_without_implementation"
-    and+ modules = Ordered_set_lang.Unexpanded.field ~since_expanded "modules" in
-    { root_module; modules; modules_without_implementation }
+    and+ modules = Ordered_set_lang.Unexpanded.field ~since_expanded "modules"
+    and+ unlinked_modules =
+      Ordered_set_lang.Unexpanded.field_o
+        ~check:(Dune_lang.Syntax.since Stanza.syntax (3, 18))
+        "unlinked_modules"
+    in
+    { root_module; modules; modules_without_implementation; unlinked_modules }
   ;;
 end

@@ -182,6 +182,7 @@ let setup sctx ~dir =
       ~scope
       ~obj_dir
       ~modules
+      ~unlinked_modules:[]
       ~opaque:(Explicit false)
       ~requires_link
       ~requires_compile:requires

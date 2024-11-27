@@ -28,7 +28,8 @@ module Origin = struct
 end
 
 module Modules = struct
-  type component = Origin.t * Modules_group.t * Path.Build.t Obj_dir.t
+  type component =
+    Origin.t * Modules_group.t * Module_name.t list * Path.Build.t Obj_dir.t
 
   type t =
     { libraries : component Lib_id.Local.Map.t
@@ -52,6 +53,7 @@ module Modules = struct
     { stanza : 'stanza
     ; sources : (Loc.t * Module.Source.t) Module_trie.t
     ; modules : Modules_group.t
+    ; unlinked_modules : Module_name.t list
     ; dir : Path.Build.t
     ; obj_dir : Path.Build.t Obj_dir.t
     }
@@ -76,7 +78,10 @@ module Modules = struct
             Library.to_lib_id ~src_dir part.stanza
           in
           let by_id =
-            Lib_id.Local.Map.add_exn by_id lib_id (origin, part.modules, part.obj_dir)
+            Lib_id.Local.Map.add_exn
+              by_id
+              lib_id
+              (origin, part.modules, part.unlinked_modules, part.obj_dir)
           and by_obj_dir =
             Path.Build.Map.update by_obj_dir (Obj_dir.obj_dir part.obj_dir) ~f:(function
               | None -> Some [ lib_id ]
@@ -89,7 +94,7 @@ module Modules = struct
         String.Map.of_list_map exes ~f:(fun (part : Executables.t group_part) ->
           let first_exe = snd (Nonempty_list.hd part.stanza.names) in
           let origin : Origin.t = Executables part.stanza in
-          first_exe, (origin, part.modules, part.obj_dir))
+          first_exe, (origin, part.modules, part.unlinked_modules, part.obj_dir))
       with
       | Ok x -> x
       | Error (name, _, part) ->
@@ -101,7 +106,7 @@ module Modules = struct
       match
         String.Map.of_list_map emits ~f:(fun part ->
           let origin : Origin.t = Melange part.stanza in
-          part.stanza.target, (origin, part.modules, part.obj_dir))
+          part.stanza.target, (origin, part.modules, part.unlinked_modules, part.obj_dir))
       with
       | Ok x -> x
       | Error (name, _, part) ->
@@ -268,14 +273,14 @@ let find_origin (t : t) ~libs path =
      | origins -> raise_module_conflict_error origins ~module_path:path)
 ;;
 
-let modules_and_obj_dir t ~libs ~for_ =
+let modules_and_obj_dir t ~libs ~for_ : (_ * _ * _) Memo.t =
   match
     match for_ with
     | Library lib_id -> Lib_id.Local.Map.find t.modules.libraries lib_id
     | Exe { first_exe } -> String.Map.find t.modules.executables first_exe
     | Melange { target } -> String.Map.find t.modules.melange_emits target
   with
-  | Some (Library _, modules, obj_dir) ->
+  | Some (Library _, modules, unlinked_modules, obj_dir) ->
     let* () =
       Modules_group.fold_user_written modules ~init:[] ~f:(fun m acc ->
         Module.path m :: acc)
@@ -286,14 +291,14 @@ let modules_and_obj_dir t ~libs ~for_ =
     (match
        Path.Build.Map.find_exn t.modules.libraries_by_obj_dir (Obj_dir.obj_dir obj_dir)
      with
-     | [] | [ _ ] -> Memo.return (modules, obj_dir)
+     | [] | [ _ ] -> Memo.return (modules, unlinked_modules, obj_dir)
      | lib_ids ->
        let+ lib_ids =
          Memo.List.filter lib_ids ~f:(fun lib_id ->
            Lib.DB.available_by_lib_id libs (Local lib_id))
        in
        (match lib_ids with
-        | [] | [ _ ] -> modules, obj_dir
+        | [] | [ _ ] -> modules, unlinked_modules, obj_dir
         | lib_ids ->
           let lib_id =
             let lib_ids =
@@ -309,7 +314,8 @@ let modules_and_obj_dir t ~libs ~for_ =
                 "Library %S appears for the second time in this directory"
                 (Lib_name.to_string (Lib_id.Local.name lib_id))
             ]))
-  | Some (_, modules, obj_dir) -> Memo.return (modules, obj_dir)
+  | Some (_, modules, unlinked_modules, obj_dir) ->
+    Memo.return (modules, unlinked_modules, obj_dir)
   | None ->
     let map =
       match for_ with
@@ -323,7 +329,10 @@ let modules_and_obj_dir t ~libs ~for_ =
       [ "keys", map; "for_", dyn_of_for_ for_ ]
 ;;
 
-let modules t ~libs ~for_ = modules_and_obj_dir t ~libs ~for_ >>| fst
+let modules t ~libs ~for_ =
+  let+ modules, unlinked_modules, _obj_dir = modules_and_obj_dir t ~libs ~for_ in
+  modules, unlinked_modules
+;;
 
 let virtual_modules ~lookup_vlib ~libs vlib =
   let info = Lib.info vlib in
@@ -334,6 +343,7 @@ let virtual_modules ~lookup_vlib ~libs vlib =
       let src_dir = Lib_info.src_dir info |> Path.as_in_build_dir_exn in
       let* t = lookup_vlib ~dir:src_dir in
       modules t ~libs ~for_:(Library (Lib_info.lib_id info |> Lib_id.to_local_exn))
+      >>| fst
   in
   let existing_virtual_modules = Modules_group.virtual_module_names modules in
   let allow_new_public_modules =
@@ -402,7 +412,7 @@ let make_lib_modules
       kind, main_module_name, wrapped
   in
   let open Memo.O in
-  let* sources, modules =
+  let* sources, unlinked_modules, modules =
     let { Buildable.loc = stanza_loc; modules = modules_settings; _ } = lib.buildable in
     Modules_field_evaluator.eval
       ~expander
@@ -437,6 +447,7 @@ let make_lib_modules
   let _loc, lib_name = lib.name in
   Resolve.Memo.return
     ( sources
+    , unlinked_modules
     , Modules_group.lib
         ~stdlib:lib.stdlib
         ~implements
@@ -471,7 +482,7 @@ let modules_of_stanzas =
   in
   let make_executables ~dir ~expander ~modules ~project exes =
     let obj_dir = Executables.obj_dir ~dir exes in
-    let+ sources, modules =
+    let+ sources, unlinked_modules, modules =
       let { Buildable.loc = stanza_loc; modules = modules_settings; _ } =
         exes.buildable
       in
@@ -491,7 +502,8 @@ let modules_of_stanzas =
       then Modules_group.make_wrapped ~obj_dir ~modules `Exe
       else Modules_group.exe_unwrapped modules ~obj_dir
     in
-    `Executables { Modules.stanza = exes; sources; modules; obj_dir; dir }
+    `Executables
+      { Modules.stanza = exes; sources; modules; unlinked_modules; obj_dir; dir }
   in
   fun stanzas ~expander ~project ~dir ~libs ~lookup_vlib ~modules ~include_subdirs ->
     Memo.parallel_map stanzas ~f:(fun stanza ->
@@ -513,7 +525,7 @@ let modules_of_stanzas =
               invalid [implements] field, we will get an error immediately even if
               the library is not built. We should change this to carry the
               [Or_exn.t] a bit longer. *)
-           let+ sources, modules =
+           let+ sources, unlinked_modules, modules =
              let lookup_vlib = lookup_vlib ~loc:lib.buildable.loc in
              make_lib_modules
                ~expander
@@ -527,12 +539,13 @@ let modules_of_stanzas =
              >>= Resolve.read_memo
            in
            let obj_dir = Library.obj_dir lib ~dir in
-           `Library { Modules.stanza = lib; sources; modules; dir; obj_dir }
+           `Library
+             { Modules.stanza = lib; sources; modules; unlinked_modules; dir; obj_dir }
          | Executables.T exes -> make_executables ~dir ~expander ~modules ~project exes
          | Tests.T { exes; _ } -> make_executables ~dir ~expander ~modules ~project exes
          | Melange_stanzas.Emit.T mel ->
            let obj_dir = Obj_dir.make_melange_emit ~dir ~name:mel.target in
-           let+ sources, modules =
+           let+ sources, unlinked_modules, modules =
              Modules_field_evaluator.eval
                ~expander
                ~modules
@@ -549,7 +562,8 @@ let modules_of_stanzas =
                ~modules
                `Melange
            in
-           `Melange_emit { Modules.stanza = mel; sources; modules; dir; obj_dir }
+           `Melange_emit
+             { Modules.stanza = mel; sources; modules; unlinked_modules; dir; obj_dir }
          | _ -> Memo.return `Skip))
     >>| filter_partition_map
 ;;

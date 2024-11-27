@@ -24,6 +24,7 @@ val create
   -> scope:Scope.t
   -> obj_dir:Path.Build.t Obj_dir.t
   -> modules:Modules.With_vlib.t
+  -> unlinked_modules:Module_name.t list
   -> flags:Ocaml_flags.t
   -> requires_compile:Lib.t list Resolve.Memo.t
   -> requires_link:Lib.t list Resolve.t Memo.Lazy.t
@@ -53,6 +54,7 @@ val dir : t -> Path.Build.t
 
 val obj_dir : t -> Path.Build.t Obj_dir.t
 val modules : t -> Modules.With_vlib.t
+val unlinked_modules : t -> Module_name.t list
 val flags : t -> Ocaml_flags.t
 val requires_link : t -> Lib.t list Resolve.Memo.t
 val requires_hidden : t -> Lib.t list Resolve.Memo.t

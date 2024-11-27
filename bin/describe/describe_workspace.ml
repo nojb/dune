@@ -397,7 +397,7 @@ module Crawl = struct
         Scope.DB.find_by_project (Super_context.context sctx |> Context.name) project
       in
       let* modules_, obj_dir =
-        let+ modules_, obj_dir =
+        let+ modules_, _unlinked_modules, obj_dir =
           Dir_contents.get sctx ~dir
           >>= Dir_contents.ocaml
           >>= Ml_sources.modules_and_obj_dir
@@ -465,7 +465,7 @@ module Crawl = struct
             let* libs =
               Scope.DB.find_by_dir (Path.as_in_build_dir_exn src_dir) >>| Scope.libs
             in
-            let+ modules_, obj_dir_ =
+            let+ modules_, _unlinked_modules, obj_dir_ =
               Dir_contents.get sctx ~dir:(Path.as_in_build_dir_exn src_dir)
               >>= Dir_contents.ocaml
               >>= Ml_sources.modules_and_obj_dir

@@ -14,6 +14,7 @@ module Modules_settings : sig
     { root_module : (Loc.t * Module_name.t) option
     ; modules_without_implementation : Ordered_set_lang.Unexpanded.t
     ; modules : Ordered_set_lang.Unexpanded.t
+    ; unlinked_modules : Ordered_set_lang.Unexpanded.t option
     }
 
   val since_expanded : Syntax.Version.t

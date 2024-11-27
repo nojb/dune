@@ -60,7 +60,7 @@ let build_lib
       | Other _ -> Fun.id
     in
     let obj_deps =
-      Action_builder.paths (Cm_files.unsorted_objects_and_cms cm_files ~mode)
+      Action_builder.paths (fst (Cm_files.unsorted_objects_and_cms cm_files ~mode))
     in
     let ocaml_flags = Ocaml_flags.get flags (Ocaml mode) in
     let* standard =
@@ -78,6 +78,7 @@ let build_lib
     let ctypes_cclib_flags =
       Ctypes_rules.ctypes_cclib_flags sctx ~expander ~buildable:lib.buildable
     in
+    let top_sorted_cms = Cm_files.top_sorted_cms cm_files ~mode in
     Super_context.add_rule
       ~dir
       sctx
@@ -101,8 +102,13 @@ let build_lib
                   | Normal -> []
                   | Ppx_deriver _ | Ppx_rewriter _ -> [ "-linkall" ])
              ; Dyn
-                 (Cm_files.top_sorted_cms cm_files ~mode
-                  |> Action_builder.map ~f:(fun x -> Command.Args.Deps x))
+                 (Action_builder.map
+                    ~f:(fun (excluded_cms, top_sorted_cms) ->
+                      Command.Args.S
+                        [ Command.Args.Hidden_deps (Dep.Set.of_files excluded_cms)
+                        ; Command.Args.Deps top_sorted_cms
+                        ])
+                    top_sorted_cms)
              ; Hidden_targets
                  (match mode with
                   | Byte -> []
@@ -459,11 +465,12 @@ let setup_build_archives (lib : Library.t) ~top_sorted_modules ~cctx ~expander ~
   in
   let cm_files =
     let excluded_modules =
+      let excluded_modules = Compilation_context.unlinked_modules cctx in
       (* ctypes type_gen and function_gen scripts should not be included in the
          library. Otherwise they will spew stuff to stdout on library load. *)
       match lib.buildable.ctypes with
-      | Some ctypes -> Ctypes_field.non_installable_modules ctypes
-      | None -> []
+      | Some ctypes -> Ctypes_field.non_installable_modules ctypes @ excluded_modules
+      | None -> excluded_modules
     in
     Cm_files.make ~excluded_modules ~obj_dir ~ext_obj ~modules ~top_sorted_modules ()
   in
@@ -496,7 +503,16 @@ let setup_build_archives (lib : Library.t) ~top_sorted_modules ~cctx ~expander ~
     (fun () -> build_shared ~native_archives ~sctx lib ~dir ~flags)
 ;;
 
-let cctx (lib : Library.t) ~sctx ~source_modules ~dir ~expander ~scope ~compile_info =
+let cctx
+  (lib : Library.t)
+  ~sctx
+  ~source_modules
+  ~unlinked_modules
+  ~dir
+  ~expander
+  ~scope
+  ~compile_info
+  =
   let* flags = Buildable_rules.ocaml_flags sctx ~dir lib.buildable.flags
   and* vimpl = Virtual_rules.impl sctx ~lib ~scope in
   let obj_dir = Library.obj_dir ~dir lib in
@@ -539,6 +555,7 @@ let cctx (lib : Library.t) ~sctx ~source_modules ~dir ~expander ~scope ~compile_
     ~scope
     ~obj_dir
     ~modules
+    ~unlinked_modules
     ~flags
     ~requires_compile
     ~requires_link
@@ -656,10 +673,12 @@ let rules (lib : Library.t) ~sctx ~dir_contents ~dir ~expander ~scope =
       ~allow_overlaps:buildable.allow_overlapping_dependencies
   in
   let f () =
-    let* source_modules =
+    let* source_modules, unlinked_modules =
       Dir_contents.ocaml dir_contents >>= Ml_sources.modules ~libs ~for_:(Library lib_id)
     in
-    let* cctx = cctx lib ~sctx ~source_modules ~dir ~scope ~expander ~compile_info in
+    let* cctx =
+      cctx lib ~sctx ~source_modules ~unlinked_modules ~dir ~scope ~expander ~compile_info
+    in
     let* () =
       match buildable.ctypes with
       | None -> Memo.return ()

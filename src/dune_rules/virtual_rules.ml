@@ -112,6 +112,7 @@ let impl sctx ~(lib : Library.t) ~scope =
              >>= Ml_sources.modules
                    ~libs:db
                    ~for_:(Library (Lib_info.lib_id info |> Lib_id.to_local_exn))
+             >>| fst
              >>=
              let pp_spec =
                Staged.unstage (Pp_spec.pped_modules_map preprocess ocaml.version)

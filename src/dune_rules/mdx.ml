@@ -477,6 +477,7 @@ let mdx_prog_gen t ~sctx ~dir ~scope ~mdx_prog =
       ~scope
       ~obj_dir
       ~modules
+      ~unlinked_modules:[]
       ~flags
       ~requires_compile
       ~requires_link

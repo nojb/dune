@@ -459,6 +459,7 @@ let modules_of_local_lib sctx lib =
   >>= Ml_sources.modules
         ~libs
         ~for_:(Library (Lib_info.lib_id info |> Lib_id.to_local_exn))
+  >>| fst
 ;;
 
 let modules_of_lib sctx lib =
