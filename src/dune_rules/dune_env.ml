@@ -195,17 +195,29 @@ let inline_tests_field =
     (Dune_lang.Syntax.since Stanza.syntax (1, 11) >>> Inline_tests.decode)
 ;;
 
+let env_vars_decoder =
+  located (repeat (pair string string))
+  >>| fun (loc, pairs) ->
+  match Env.Map.of_list pairs with
+  | Ok vars -> Env.extend Env.empty ~vars
+  | Error (k, _, _) ->
+    User_error.raise ~loc [ Pp.textf "Variable %s is specified several times" k ]
+;;
+
 let env_vars_field =
+  field
+    "env_vars"
+    ~default:Env.empty
+    (Dune_lang.Syntax.since Stanza.syntax (3, 18) >>> env_vars_decoder)
+;;
+
+let env_vars_field_old =
   field
     "env-vars"
     ~default:Env.empty
     (Dune_lang.Syntax.since Stanza.syntax (1, 5)
-     >>> located (repeat (pair string string))
-     >>| fun (loc, pairs) ->
-     match Env.Map.of_list pairs with
-     | Ok vars -> Env.extend Env.empty ~vars
-     | Error (k, _, _) ->
-       User_error.raise ~loc [ Pp.textf "Variable %s is specified several times" k ])
+     >>> Dune_lang.Syntax.renamed_in Stanza.syntax (3, 18) ~to_:"env_vars"
+     >>> env_vars_decoder)
 ;;
 
 let odoc_field =
