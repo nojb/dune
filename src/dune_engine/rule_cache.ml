@@ -9,14 +9,16 @@ module Workspace_local = struct
         { rule_digest : Digest.t
         ; dynamic_deps_stages : (Dep.Set.t * Digest.t) list
         ; targets_digest : Digest.t
+        ; cached_output : string option
         }
 
-      let to_dyn { rule_digest; dynamic_deps_stages; targets_digest } =
+      let to_dyn { rule_digest; dynamic_deps_stages; targets_digest; cached_output } =
         Dyn.Record
           [ "rule_digest", Digest.to_dyn rule_digest
           ; ( "dynamic_deps_stages"
             , Dyn.list (Dyn.pair Dep.Set.to_dyn Digest.to_dyn) dynamic_deps_stages )
           ; "targets_digest", Digest.to_dyn targets_digest
+          ; "cached_output", Dyn.option Dyn.string cached_output
           ]
       ;;
     end
@@ -31,7 +33,7 @@ module Workspace_local = struct
         type nonrec t = t
 
         let name = "INCREMENTAL-DB"
-        let version = 6
+        let version = 7
         let to_dyn = to_dyn
 
         let test_example () =
@@ -42,6 +44,7 @@ module Workspace_local = struct
             { Entry.rule_digest = Digest.string "foo"
             ; dynamic_deps_stages = [ Dep.Set.empty, Digest.string "bar" ]
             ; targets_digest = Digest.string "zzz"
+            ; cached_output = None
             };
           table
         ;;
@@ -87,10 +90,21 @@ module Workspace_local = struct
     ;;
   end
 
-  let store ~head_target ~rule_digest ~dynamic_deps_stages ~targets_digest =
+  type lookup_result =
+    { produced_targets : Digest.t Targets.Produced.t
+    ; cached_output : string option
+    }
+
+  let store
+        ~head_target
+        ~rule_digest
+        ~dynamic_deps_stages
+        ~targets_digest
+        ~cached_output
+    =
     Database.set
       (Path.build head_target)
-      { rule_digest; dynamic_deps_stages; targets_digest }
+      { rule_digest; dynamic_deps_stages; targets_digest; cached_output }
   ;;
 
   module Miss_reason = struct
@@ -164,7 +178,7 @@ module Workspace_local = struct
            (match compute_target_digests targets with
             | Miss reason -> Miss reason
             | Hit produced_targets ->
-              (match
+             (match
                  Digest.equal
                    prev_trace.targets_digest
                    (Targets.Produced.digest produced_targets)
@@ -181,7 +195,7 @@ module Workspace_local = struct
          later stages). *)
       let rec loop stages =
         match stages with
-        | [] -> Fiber.return (Hit produced_targets)
+        | [] -> Fiber.return (Hit (produced_targets, prev_trace.cached_output))
         | (deps, old_digest) :: rest ->
           let open Fiber.O in
           let* deps = Memo.run (build_deps deps) in
@@ -194,7 +208,7 @@ module Workspace_local = struct
   ;;
 
   let lookup ~always_rerun ~rule_digest ~targets ~env ~build_deps
-    : Digest.t Targets.Produced.t option Fiber.t
+    : lookup_result option Fiber.t
     =
     let open Fiber.O in
     let+ result =
@@ -203,7 +217,8 @@ module Workspace_local = struct
       | false -> lookup_impl ~rule_digest ~targets ~env ~build_deps
     in
     match result with
-    | Hit result -> Some result
+    | Hit (produced_targets, cached_output) ->
+      Some { produced_targets; cached_output }
     | Miss reason ->
       let t = Build_config.get () in
       if t.cache_debug_flags.workspace_local_cache

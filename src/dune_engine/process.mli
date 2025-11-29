@@ -117,10 +117,12 @@ val run_with_times
   -> ?stdin_from:Io.input Io.t
   -> ?env:Env.t
   -> ?metadata:metadata
-  -> (Proc.Times.t, 'a) Failure_mode.t
+  -> (Proc.Times.t * string, 'a) Failure_mode.t
   -> Path.t
   -> string list
   -> 'a Fiber.t
+
+val capture_outputs : (unit -> 'a Fiber.t) -> ('a * string list) Fiber.t
 
 (** Run a command and capture its output *)
 val run_capture

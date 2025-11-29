@@ -25,6 +25,12 @@ By default, stdout and stderr are always printed:
   Hello, world!
   Something went wrong!
 
+Cached output is replayed for up-to-date rules:
+
+  $ dune build
+  Hello, world!
+  Something went wrong!
+
 swallow tests
 -------------
 

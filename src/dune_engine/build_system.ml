@@ -567,14 +567,21 @@ end = struct
       in
       let* (produced_targets : Digest.t Targets.Produced.t) =
         (* Step I. Check if the workspace-local cache is up to date. *)
-        Rule_cache.Workspace_local.lookup
-          ~always_rerun
-          ~rule_digest
-          ~targets
-          ~env:action.env
-          ~build_deps
-        >>= function
-        | Some produced_targets -> Fiber.return produced_targets
+        let* cache_entry =
+          Rule_cache.Workspace_local.lookup
+            ~always_rerun
+            ~rule_digest
+            ~targets
+            ~env:action.env
+            ~build_deps
+        in
+        match cache_entry with
+        | Some { produced_targets; cached_output } ->
+          (match cached_output with
+           | None -> ()
+           | Some output ->
+             if not (String.is_empty output) then Printf.printf "%s%!" output);
+          Fiber.return produced_targets
         | None ->
           (* Step II. Remove stale targets both from the digest table and from
              the build directory. *)
@@ -608,7 +615,7 @@ end = struct
                 ~file:remove_target_file
                 ~dir:remove_target_dir)
           in
-          let* produced_targets, dynamic_deps_stages =
+          let* produced_targets, dynamic_deps_stages, cached_output =
             (* Step III. Try to restore artifacts from the shared cache. *)
             Rule_cache.Shared.lookup ~can_go_in_shared_cache ~rule_digest ~targets
             >>= function
@@ -620,7 +627,8 @@ end = struct
                  is precisely the reason why we don't store dynamic actions in
                  the shared cache. *)
               let dynamic_deps_stages = [] in
-              Fiber.return (produced_targets, dynamic_deps_stages)
+              let cached_output = None in
+              Fiber.return (produced_targets, dynamic_deps_stages, cached_output)
             | None ->
               (* Step IV. Execute the build action. *)
               let* exec_result =
@@ -654,7 +662,11 @@ end = struct
                   ~f:(fun (deps, fact_map) ->
                     deps, Dep.Facts.digest fact_map ~env:action.env)
               in
-              Fiber.return (produced_targets, dynamic_deps_stages)
+              let cached_output =
+                let output = exec_result.action_exec_result.output in
+                Option.some_if (not (String.is_empty output)) output
+              in
+              Fiber.return (produced_targets, dynamic_deps_stages, cached_output)
           in
           (* We do not include target names into [targets_digest] because they
              are already included into the rule digest. *)
@@ -662,7 +674,8 @@ end = struct
             ~head_target
             ~rule_digest
             ~dynamic_deps_stages
-            ~targets_digest:(Targets.Produced.digest produced_targets);
+            ~targets_digest:(Targets.Produced.digest produced_targets)
+            ~cached_output;
           Fiber.return produced_targets
       in
       let* () =

@@ -11,6 +11,11 @@ open Import
     The database makes it possible to decide if the build directory contains up
     to date results for a given rule. *)
 module Workspace_local : sig
+  type lookup_result =
+    { produced_targets : Digest.t Targets.Produced.t
+    ; cached_output : string option
+    }
+
   (** Check if the workspace-local cache contains up-to-date results for a rule
       using the information stored in the rule database. *)
   val lookup
@@ -19,7 +24,7 @@ module Workspace_local : sig
     -> targets:Targets.Validated.t
     -> env:Env.t
     -> build_deps:(Dep.Set.t -> Dep.Facts.t Memo.t)
-    -> Digest.t Targets.Produced.t option Fiber.t
+    -> lookup_result option Fiber.t
 
   (** Add a new record to the rule database. *)
   val store
@@ -27,6 +32,7 @@ module Workspace_local : sig
     -> rule_digest:Digest.t
     -> dynamic_deps_stages:(Dep.Set.t * Digest.t) list
     -> targets_digest:Digest.t
+    -> cached_output:string option
     -> unit
 end
 

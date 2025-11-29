@@ -123,10 +123,11 @@ module Exec_result = struct
     ;;
   end
 
-  type ok =
-    { dynamic_deps_stages : (Dep.Set.t * Dep.Facts.t) list
-    ; duration : float option
-    }
+type ok =
+  { dynamic_deps_stages : (Dep.Set.t * Dep.Facts.t) list
+  ; duration : float option
+  ; output : string
+  }
 
   type t = (ok, Error.t list) Result.t
 
@@ -142,7 +143,7 @@ end
 open Produce.O
 
 let exec_run ~(ectx : context) ~(eenv : env) prog args : _ Produce.t =
-  let* (res : (Proc.Times.t, int) result) =
+  let* (res : ((Proc.Times.t * string), int) result) =
     Produce.of_fiber
     @@ Process.run_with_times
          ~display:!Clflags.display
@@ -158,7 +159,10 @@ let exec_run ~(ectx : context) ~(eenv : env) prog args : _ Produce.t =
   in
   match res with
   | Error _ -> Produce.return ()
-  | Ok times -> Produce.incr_duration times.elapsed_time
+  | Ok (times, output) ->
+    let* () = Produce.incr_duration times.elapsed_time in
+    ignore output;
+    Produce.return ()
 ;;
 
 let exec_echo stdout_to str =
@@ -369,7 +373,10 @@ let exec_until_all_deps_ready ~ectx ~eenv t =
   in
   let open Fiber.O in
   let+ stages, state = Produce.run Produce.State.empty (loop ~eenv []) in
-  { Exec_result.dynamic_deps_stages = List.rev stages; duration = state.duration }
+  { Exec_result.dynamic_deps_stages = List.rev stages
+  ; duration = state.duration
+  ; output = ""
+  }
 ;;
 
 type input =
@@ -420,11 +427,13 @@ let exec
     }
   in
   let open Fiber.O in
-  let+ result =
-    Fiber.collect_errors (fun () -> exec_until_all_deps_ready t ~ectx ~eenv)
+  let+ result, outputs =
+    Process.capture_outputs (fun () ->
+      Fiber.collect_errors (fun () -> exec_until_all_deps_ready t ~ectx ~eenv))
   in
   match result with
-  | Ok res -> Ok res
+  | Ok res ->
+    Ok { res with output = String.concat outputs ~sep:"" }
   | Error exns ->
     Error
       (List.map exns ~f:(fun (e : Exn_with_backtrace.t) -> Exec_result.Error.of_exn e.exn))

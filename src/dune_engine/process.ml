@@ -8,6 +8,15 @@ module Action_output_limit = Execution_parameters.Action_output_limit
 
 let limit_output = Dune_output_truncation.limit_output ~message:"TRUNCATED BY DUNE"
 
+let output_capture_var : string list ref option Fiber.Var.t = Fiber.Var.create None
+
+let capture_outputs f =
+  let buf = ref [] in
+  Fiber.Var.set output_capture_var (Some buf) (fun () ->
+    let+ res = f () in
+    res, List.rev !buf)
+;;
+
 module Failure_mode = struct
   type ('a, 'b) t =
     | Strict : ('a, 'a) t
@@ -917,7 +926,7 @@ let spawn
           capture ~suffix:"stdout"
         | _ -> None, stdout
       in
-      let stderr =
+      let stderr_capture, stderr =
         match stdout.kind, stderr.kind with
         | ( Terminal { output_on_success = Print; _ }
           , Terminal { output_on_success = Print; _ } )
@@ -935,7 +944,7 @@ let spawn
           capture ~suffix:"stderr"
         | _ -> None, stderr
       in
-      (stdout_capture, stdout), stderr
+      (stdout_capture, stdout), (stderr_capture, stderr)
     | _ -> (None, stdout), (None, stderr)
   in
   let prog_str = Path.reach_for_running ?from:dir prog in
@@ -1070,7 +1079,8 @@ let run_internal
     let* process_info, termination_reason =
       await ~timeout_seconds:(Failure_mode.timeout_seconds fail_mode) t
     in
-    let+ () = Running_jobs.stop id in
+    let* () = Running_jobs.stop id in
+    let* output_capture = Fiber.Var.get output_capture_var in
     let result = Result.make t process_info fail_mode in
     let times =
       { Proc.Times.elapsed_time = process_info.end_time -. t.started_at
@@ -1100,9 +1110,12 @@ let run_internal
          we're about to return. *)
       Result.close result;
       raise (Memo.Non_reproducible Scheduler.Run.Build_cancelled)
-    | Timeout -> `Timeout, times
+    | Timeout -> Fiber.return (`Timeout, times, "")
     | Normal ->
       let output = Result.Out.get result.stdout ^ Result.Out.get result.stderr in
+      (match output_capture with
+       | None -> ()
+       | Some buf -> buf := output :: !buf);
       Log.command ~command_line ~output ~exit_status:process_info.status;
       let res =
         match display, result.exit_status, output with
@@ -1128,12 +1141,12 @@ let run_internal
             ~has_unexpected_stderr:result.stderr.unexpected_output
       in
       Result.close result;
-      `Finished res, times)
+      Fiber.return (`Finished res, times, output))
 ;;
 
 let run ?dir ~display ?stdout_to ?stderr_to ?stdin_from ?env ?metadata fail_mode prog args
   =
-  let+ run, _ =
+  let+ run, _, _ =
     run_internal
       ?dir
       ~display
@@ -1161,7 +1174,7 @@ let run_with_times
       prog
       args
   =
-  let+ code, times =
+  let+ code, times, output =
     run_internal
       ?dir
       ~display
@@ -1174,7 +1187,7 @@ let run_with_times
       prog
       args
   in
-  Failure_mode.map_result fail_mode code ~f:(fun () -> times)
+  Failure_mode.map_result fail_mode code ~f:(fun () -> times, output)
 ;;
 
 let run_capture_gen
@@ -1190,7 +1203,7 @@ let run_capture_gen
       ~f
   =
   let fn = Temp.create File ~prefix:"dune" ~suffix:"output" in
-  let+ run, _ =
+  let+ run, _, _ =
     run_internal
       ?dir
       ~display
@@ -1280,6 +1293,5 @@ let run_inherit_std_in_out =
       Return
       prog
       args
-    >>| fst
-    >>| Failure_mode.exit_code_of_result
+    >>| (fun (status, _, _) -> Failure_mode.exit_code_of_result status)
 ;;
