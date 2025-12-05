@@ -95,13 +95,7 @@ module Workspace_local = struct
     ; cached_output : string option
     }
 
-  let store
-        ~head_target
-        ~rule_digest
-        ~dynamic_deps_stages
-        ~targets_digest
-        ~cached_output
-    =
+  let store ~head_target ~rule_digest ~dynamic_deps_stages ~targets_digest ~cached_output =
     Database.set
       (Path.build head_target)
       { rule_digest; dynamic_deps_stages; targets_digest; cached_output }
@@ -178,7 +172,7 @@ module Workspace_local = struct
            (match compute_target_digests targets with
             | Miss reason -> Miss reason
             | Hit produced_targets ->
-             (match
+              (match
                  Digest.equal
                    prev_trace.targets_digest
                    (Targets.Produced.digest produced_targets)
@@ -217,8 +211,7 @@ module Workspace_local = struct
       | false -> lookup_impl ~rule_digest ~targets ~env ~build_deps
     in
     match result with
-    | Hit (produced_targets, cached_output) ->
-      Some { produced_targets; cached_output }
+    | Hit (produced_targets, cached_output) -> Some { produced_targets; cached_output }
     | Miss reason ->
       let t = Build_config.get () in
       if t.cache_debug_flags.workspace_local_cache

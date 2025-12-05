@@ -123,11 +123,11 @@ module Exec_result = struct
     ;;
   end
 
-type ok =
-  { dynamic_deps_stages : (Dep.Set.t * Dep.Facts.t) list
-  ; duration : float option
-  ; output : string
-  }
+  type ok =
+    { dynamic_deps_stages : (Dep.Set.t * Dep.Facts.t) list
+    ; duration : float option
+    ; output : string
+    }
 
   type t = (ok, Error.t list) Result.t
 
@@ -143,7 +143,7 @@ end
 open Produce.O
 
 let exec_run ~(ectx : context) ~(eenv : env) prog args : _ Produce.t =
-  let* (res : ((Proc.Times.t * string), int) result) =
+  let* (res : (Proc.Times.t * string, int) result) =
     Produce.of_fiber
     @@ Process.run_with_times
          ~display:!Clflags.display
@@ -432,8 +432,7 @@ let exec
       Fiber.collect_errors (fun () -> exec_until_all_deps_ready t ~ectx ~eenv))
   in
   match result with
-  | Ok res ->
-    Ok { res with output = String.concat outputs ~sep:"" }
+  | Ok res -> Ok { res with output = String.concat outputs ~sep:"" }
   | Error exns ->
     Error
       (List.map exns ~f:(fun (e : Exn_with_backtrace.t) -> Exec_result.Error.of_exn e.exn))

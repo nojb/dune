@@ -7,7 +7,6 @@ module Action_output_on_success = Execution_parameters.Action_output_on_success
 module Action_output_limit = Execution_parameters.Action_output_limit
 
 let limit_output = Dune_output_truncation.limit_output ~message:"TRUNCATED BY DUNE"
-
 let output_capture_var : string list ref option Fiber.Var.t = Fiber.Var.create None
 
 let capture_outputs f =
@@ -74,8 +73,8 @@ module Io = struct
   type kind =
     | File of Path.t
     | Null
-      (* This argument make no sense for inputs, but it seems annoying to
-         change, especially as this code is meant to change again in #4435. *)
+    (* This argument make no sense for inputs, but it seems annoying to
+       change, especially as this code is meant to change again in #4435. *)
     | Terminal of
         { output_on_success : Action_output_on_success.t
         ; output_limit : Action_output_limit.t
@@ -639,8 +638,8 @@ end = struct
       !Clflags.always_show_command_line
       ||
       (* We want to show command lines in the CI, but not when running inside
-            dune. Otherwise tests would yield different result whether they are
-            executed locally or in the CI. *)
+         dune. Otherwise tests would yield different result whether they are
+         executed locally or in the CI. *)
       (Execution_env.inside_ci && not Execution_env.inside_dune)
     in
     let add_command_line paragraphs =
@@ -796,7 +795,7 @@ module Result = struct
          ; stderr
          ; _
          } :
-          process)
+           process)
         (process_info : Proc.Process_info.t)
         fail_mode
     =
@@ -1009,6 +1008,19 @@ let spawn
   }
 ;;
 
+type run_output =
+  {
+    prog: string;
+    args: string list;
+    dir: string;
+    stdout_to: unit;
+    stderr_to: unit;
+    stdin_from: string;
+    result: result;
+    stdout: string;
+    stderr: string;
+  }
+
 let run_internal
       ?dir
       ~(display : Display.t)
@@ -1032,23 +1044,6 @@ let run_internal
     let prog_str = Path.reach_for_running ?from:dir prog in
     let command_line =
       command_line ~prog:prog_str ~args ~dir ~stdout_to ~stderr_to ~stdin_from
-    in
-    let fancy_command_line =
-      match display with
-      | Verbose ->
-        let open Pp.O in
-        let cmdline =
-          Fancy.command_line ~prog:prog_str ~args ~dir ~stdout_to ~stderr_to ~stdin_from
-        in
-        Console.print_user_message
-          (User_message.make
-             [ Pp.tag User_message.Style.Kwd (Pp.verbatim "Running")
-               ++ pp_id id
-               ++ Pp.verbatim ": "
-               ++ cmdline
-             ]);
-        cmdline
-      | _ -> Pp.nop
     in
     let (t : t) =
       spawn
@@ -1080,7 +1075,6 @@ let run_internal
       await ~timeout_seconds:(Failure_mode.timeout_seconds fail_mode) t
     in
     let* () = Running_jobs.stop id in
-    let* output_capture = Fiber.Var.get output_capture_var in
     let result = Result.make t process_info fail_mode in
     let times =
       { Proc.Times.elapsed_time = process_info.end_time -. t.started_at
@@ -1113,14 +1107,37 @@ let run_internal
     | Timeout -> Fiber.return (`Timeout, times, "")
     | Normal ->
       let output = Result.Out.get result.stdout ^ Result.Out.get result.stderr in
-      (match output_capture with
-       | None -> ()
-       | Some buf -> buf := output :: !buf);
+      let* () =
+        if output = "" then
+          Fiber.return ()
+        else
+          let+ output_capture = Fiber.Var.get output_capture_var in
+          let run_output =
+            {
+              prog = prog_str; args; dir; stdout; stderr;
+            }
+          in
+          Option.iter output_capture ~f:(fun buf -> buf := run_output :: !buf)
+      in
       Log.command ~command_line ~output ~exit_status:process_info.status;
       let res =
         match display, result.exit_status, output with
         | Quiet, Ok n, "" -> n (* Optimisation for the common case *)
         | Verbose, _, _ ->
+          let fancy_command_line =
+            let open Pp.O in
+            let cmdline =
+              Fancy.command_line ~prog:prog_str ~args ~dir ~stdout_to ~stderr_to ~stdin_from
+            in
+            Console.print_user_message
+              (User_message.make
+                 [ Pp.tag User_message.Style.Kwd (Pp.verbatim "Running")
+                   ++ pp_id id
+                   ++ Pp.verbatim ": "
+                   ++ cmdline
+                 ]);
+            cmdline
+          in
           Handle_exit_status.verbose
             result.exit_status
             ~id
@@ -1293,5 +1310,5 @@ let run_inherit_std_in_out =
       Return
       prog
       args
-    >>| (fun (status, _, _) -> Failure_mode.exit_code_of_result status)
+    >>| fun (status, _, _) -> Failure_mode.exit_code_of_result status
 ;;

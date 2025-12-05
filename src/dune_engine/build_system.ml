@@ -580,7 +580,7 @@ end = struct
           (match cached_output with
            | None -> ()
            | Some output ->
-             if not (String.is_empty output) then Printf.printf "%s%!" output);
+             Console.print_user_message (User_message.make [ Pp.verbatim output ]));
           Fiber.return produced_targets
         | None ->
           (* Step II. Remove stale targets both from the digest table and from
