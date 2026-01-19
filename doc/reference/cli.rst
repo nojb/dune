@@ -204,6 +204,8 @@ documentation for each command is available through ``dune COMMAND --help``.
 .. describe:: dune rules
 
    Dump rules.
+   By default the output is S-expressions; use ``--makefile`` or ``--ninja`` for
+   Makefile or Ninja syntax.
 
 .. describe:: dune runtest
 

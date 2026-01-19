@@ -44,6 +44,28 @@ let interpret_perm (perm : Action.File_perm.t) fn acc =
 ;;
 
 let simplify act =
+  let system_action_of_extension = function
+    | Sexp.List [ Atom "system"; Atom _version; Atom cmd ] ->
+      Some [ Run ("sh", [ "-c"; cmd ]) ]
+    | _ -> None
+  in
+  let dedup_consecutive_mkdirs l =
+    let is_mkdir = function
+      | Run ("mkdir", [ "-p"; dir ]) -> Some dir
+      | _ -> None
+    in
+    let rec loop acc = function
+      | x :: xs ->
+        (match is_mkdir x, acc with
+         | Some dir, prev :: _ ->
+           (match is_mkdir prev with
+            | Some prev_dir when String.equal dir prev_dir -> loop acc xs
+            | _ -> loop (x :: acc) xs)
+         | _ -> loop (x :: acc) xs)
+      | [] -> List.rev acc
+    in
+    loop [] l
+  in
   let rec loop (act : Action.For_shell.t) acc =
     match act with
     | Run (prog, args) -> Run (prog, Array.Immutable.to_list args) :: acc
@@ -56,7 +78,7 @@ let simplify act =
     | Ignore (outputs, act) -> Redirect_out (block act, outputs, Dev_null) :: acc
     | Progn l -> List.fold_left l ~init:acc ~f:(fun acc act -> loop act acc)
     | Concurrent l -> Concurrent (List.map ~f:block l) :: acc
-    | Echo xs -> echo (String.concat xs ~sep:"")
+    | Echo xs -> List.rev_append (echo (String.concat xs ~sep:"")) acc
     | Cat x -> cat x :: acc
     | Copy (x, y) -> Run ("cp", [ x; y ]) :: acc
     | Symlink (x, y) -> Run ("ln", [ "-s"; x; y ]) :: Run ("rm", [ "-f"; y ]) :: acc
@@ -68,11 +90,20 @@ let simplify act =
     | Remove_tree x -> Run ("rm", [ "-rf"; x ]) :: acc
     | Mkdir x -> mkdir x :: acc
     | Pipe (outputs, l) -> Pipe (List.map ~f:block l, outputs) :: acc
-    | Extension _ -> Sh "# extensions are not supported" :: acc
+    | Extension ext ->
+      (match system_action_of_extension ext with
+       | Some actions -> List.rev_append actions acc
+       | None ->
+         let ext_name =
+           match ext with
+           | Sexp.List (Atom name :: _) -> name
+           | _ -> "unknown"
+         in
+         Sh (Printf.sprintf "# extension %s is not supported" ext_name) :: acc)
   and block act =
     match List.rev (loop act []) with
     | [] -> [ Run ("true", []) ]
-    | l -> l
+    | l -> dedup_consecutive_mkdirs l
   in
   block act
 ;;
@@ -105,7 +136,8 @@ and pp = function
       (Pp.concat
          (quote prog :: List.concat_map args ~f:(fun arg -> [ Pp.space; quote arg ])))
   | Chdir dir -> Pp.hovbox ~indent:2 (Pp.concat [ Pp.verbatim "cd"; Pp.space; quote dir ])
-  | Setenv (k, v) -> Pp.concat [ Pp.verbatim k; Pp.verbatim "="; quote v ]
+  | Setenv (k, v) ->
+    Pp.concat [ Pp.verbatim "export"; Pp.space; Pp.verbatim k; Pp.verbatim "="; quote v ]
   | Sh s -> Pp.verbatim s
   | Redirect_in (l, inputs, src) ->
     let body = block l in

@@ -163,13 +163,17 @@ let for_shell t =
     ~f_path
     ~f_target
     ~f_ext:(fun ~dir (module A) ->
-      A.Spec.encode
+        A.Spec.encode
         A.v
         (fun p -> Sexp.Atom (f_path p ~dir))
         (fun p -> Sexp.Atom (f_target p ~dir)))
     ~f_program:(fun ~dir x ->
       match x with
-      | Ok p -> Path.reach p ~from:dir
+      | Ok p ->
+        let path = Path.reach p ~from:dir in
+        if Filename.is_relative path && not (String.contains path '/')
+        then "./" ^ path
+        else path
       | Error e -> e.program)
 ;;
 
